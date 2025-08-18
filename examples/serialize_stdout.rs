@@ -1,0 +1,18 @@
+#!cfg(not([no_std]))
+
+use std::io::stdout;
+
+use embedded_io_adapters::std::FromStd;
+use lil_json::{JsonField, JsonObject, JsonValue};
+
+
+fn main() {
+    let stdout = FromStd::new(stdout());
+    let mut json_object = JsonObject::<10>::new();
+    json_object.push_field("some_number", JsonValue::Number(12345)).unwrap();
+    json_object.push_field("some_string", JsonValue::String("hello world!")).unwrap();
+    json_object.push_field("some_boolean", JsonValue::Boolean(true)).unwrap();
+    json_object.serialize_blocking(stdout).unwrap();
+}
+
+// output: {"some_number":12345,"some_string":"hello world!","some_boolean":true}
