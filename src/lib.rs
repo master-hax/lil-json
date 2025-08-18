@@ -3,17 +3,35 @@
 use embedded_io::Write;
 use numtoa::base10;
 
-#[derive(Debug,PartialEq,Eq)]
+#[derive(Debug,PartialEq,Eq,Clone,Copy)]
 pub enum JsonValue<'a> {
     String(&'a str),
     Boolean(bool),
     Number(i64),
 }
 
-#[derive(Debug,PartialEq,Eq)]
+#[derive(Debug,PartialEq,Eq,Clone,Copy)]
 pub struct JsonField<'a,'b> {
     pub key: &'a str,
     pub value: JsonValue<'b>,
+}
+
+impl <'a,'b> JsonField<'a,'b> {
+    pub fn new(key: &'a str, value: JsonValue<'b>) -> Self {
+        JsonField { key, value }
+    }
+
+    pub fn new_string(key: &'a str, value: &'b str) -> Self {
+        Self::new(key, JsonValue::String(value))
+    }
+
+    pub fn new_number(key: &'a str, value: i64) -> Self {
+        Self::new(key, JsonValue::Number(value))
+    }
+
+    pub fn new_boolean(key: &'a str, value: bool) -> Self {
+        Self::new(key, JsonValue::Boolean(value))
+    }
 }
 
 #[derive(Debug)]
@@ -42,11 +60,15 @@ impl <'a,'b> Default for JsonField<'a,'b> {
 
 impl<'a,const MAX_FIELDS: usize> Default for JsonObject<'a,MAX_FIELDS> {
     fn default() -> Self {
-        JsonObject { fields: [EMPTY_FIELD; MAX_FIELDS], num_fields: 0 }
+        Self::new()
     }
 }
 
 impl <'a,const MAX_FIELDS: usize> JsonObject<'a,MAX_FIELDS> {
+
+    pub const fn new() -> Self {
+        JsonObject { fields: [EMPTY_FIELD; MAX_FIELDS], num_fields: 0 }
+    }
 
     pub const fn as_slice(&self) -> &[JsonField<'a,'a>] {
         self.fields.split_at(self.num_fields).0
