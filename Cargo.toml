@@ -2,6 +2,10 @@
 name = "lil-json"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/master-hax/lil-json"
+license = "MIT OR Apache-2.0"
+keywords = ["json"]
+categories = ["parsing", "no-std", "no-std::no-alloc", "embedded", "web-programming"]
 
 [dependencies]
 embedded-io = { version = "0.6.1", default-features = false }
