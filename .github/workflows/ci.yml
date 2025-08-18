@@ -1,0 +1,16 @@
+name: ci
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rustup
+        run: sudo apt-get update && sudo apt-get install rustup && rustup default stable
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # https://github.com/actions/checkout/tree/v4.2.2
+      - name: Test
+        run: cargo test
