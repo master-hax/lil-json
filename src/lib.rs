@@ -121,7 +121,7 @@ impl <'a,const MAX_FIELDS: usize> JsonObject<'a,MAX_FIELDS> {
     }
 
     pub fn serialize_blocking<T: Write>(&self, output: T) -> Result<usize,T::Error> {
-        write_json_map(output, self.as_slice())
+        serialize_json_object(output, self.as_slice())
     }
 
 }
@@ -281,7 +281,8 @@ fn write_escaped_json_string<T: Write>(mut output: T, counter: &mut usize, data:
     Ok(())
 }
 
-pub(crate) fn write_json_map<T: Write>(mut output: T, fields: &[JsonField]) -> Result<usize, T::Error> {
+/// serialize a json object with the provided fields into output & return the number of bytes written on success
+pub fn serialize_json_object<T: Write>(mut output: T, fields: &[JsonField]) -> Result<usize, T::Error> {
     let mut ret = 0;
     tracked_write(&mut output,&mut ret , "{")?;
     let mut field_needs_comma = false;
