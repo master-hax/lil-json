@@ -1,6 +1,6 @@
 # lil-json
 
-`#![no_std]` Rust crate to parse & serialize JavaScript Object Notation (JSON)
+lil `#![no_std]` Rust crate to parse & serialize JavaScript Object Notation (JSON)
 
 example object serialization:
 ```rust
