@@ -106,7 +106,13 @@ impl <'a,const MAX_FIELDS: usize> JsonObject<'a,MAX_FIELDS> {
     }
 
     pub fn parse_from(data: &'a [u8]) -> Result<(usize,Self),JsonParseFailure> {
-        parse_json_map(data)
+        let mut fields = [EMPTY_FIELD; MAX_FIELDS];
+        let (n, num_fields) = parse_json_object(data, fields.as_mut_slice())?;
+        let ret = Self {
+            fields,
+            num_fields
+        };
+        Ok((n,ret))
     }
 
     pub fn serialize_blocking<T: Write>(&self, output: T) -> Result<usize,T::Error> {
@@ -172,71 +178,77 @@ fn skip_whitespace(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure
     }
 }
 
-fn parse_json_map<'a,const MAX_FIELDS: usize>(data: &'a [u8]) -> Result<(usize,JsonObject<'a, MAX_FIELDS>),JsonParseFailure> {
-    let mut ret = JsonObject::default();
-    let mut current_index = 0;
+/// parse a json object into the provided field buffer & return (data bytes consumed,num fields parsed) on success
+pub fn parse_json_object<'a>(data: &'a [u8], field_buffer: &mut [JsonField<'a,'a>]) -> Result<(usize,usize),JsonParseFailure> {
+    let mut current_data_index = 0;
+    let mut current_field_index = 0;
     let mut map_entry_needs_comma = false;
-    skip_whitespace(&mut current_index, data)?;
-    if data[current_index] != b'{' {
+    skip_whitespace(&mut current_data_index, data)?;
+    if data[current_data_index] != b'{' {
         return Err(JsonParseFailure::InvalidStructure);
     }
-    let _map_start_index = current_index;
-    current_index += 1;
-    while current_index < data.len()  {
-        skip_whitespace(&mut current_index, data)?;
-        if data[current_index] == b'}' {
-            return Ok((current_index+1,ret))
+    let _map_start_index = current_data_index;
+    current_data_index += 1;
+    while current_data_index < data.len()  {
+        skip_whitespace(&mut current_data_index, data)?;
+        if data[current_data_index] == b'}' {
+            return Ok((current_data_index+1,current_field_index))
         } else if map_entry_needs_comma  {
-            if data[current_index] != b',' {
+            if data[current_data_index] != b',' {
                 return Err(JsonParseFailure::InvalidStructure);
             }
-            current_index += 1;
+            current_data_index += 1;
             map_entry_needs_comma = false;
         } else {
             map_entry_needs_comma = true;
-            let key_start_quote_index = current_index;
-            current_index += 1;
-            skip_json_string(&mut current_index, data)?;
-            let key_end_quote_index = current_index;
+            let key_start_quote_index = current_data_index;
+            current_data_index += 1;
+            skip_json_string(&mut current_data_index, data)?;
+            let key_end_quote_index = current_data_index;
             let string_key = core::str::from_utf8(&data[key_start_quote_index+1..key_end_quote_index]).expect("skipped json object key string");
-            current_index += 1;
-            skip_whitespace(&mut current_index, data)?;
-            if data[current_index] != b':' {
+            current_data_index += 1;
+            skip_whitespace(&mut current_data_index, data)?;
+            if data[current_data_index] != b':' {
                 return Err(JsonParseFailure::InvalidStructure);
             }
-            current_index += 1;
-            skip_whitespace(&mut current_index, data)?;
+            current_data_index += 1;
+            skip_whitespace(&mut current_data_index, data)?;
 
-            if data[current_index] == b'"' {
-                let value_start_quote_index = current_index;
-                current_index += 1;
-                skip_json_string(&mut current_index, data)?;
-                let value_end_quote_index = current_index;
-                current_index += 1;
+            if data[current_data_index] == b'"' {
+                let value_start_quote_index = current_data_index;
+                current_data_index += 1;
+                skip_json_string(&mut current_data_index, data)?;
+                let value_end_quote_index = current_data_index;
+                current_data_index += 1;
                 let string_value = core::str::from_utf8(&data[value_start_quote_index+1..value_end_quote_index]).expect("skipped json object value string");
-                if let Err(()) = ret.push_field(string_key, JsonValue::String(string_value)) {
+                if current_field_index >= field_buffer.len() {
                     return Err(JsonParseFailure::TooManyFields);
                 }
-
-            } else if data[current_index] == b't' || data[current_index] == b'f' {
-                let expect_true = data[current_index] == b't';
-                skip_json_boolean(&mut current_index, data, expect_true)?;
-                if let Err(()) = ret.push_field(string_key, JsonValue::Boolean(expect_true)) {
+                field_buffer[current_field_index] = JsonField::new(string_key, JsonValue::String(string_value));
+                current_field_index += 1;
+            } else if data[current_data_index] == b't' || data[current_data_index] == b'f' {
+                let expect_true = data[current_data_index] == b't';
+                skip_json_boolean(&mut current_data_index, data, expect_true)?;
+                if current_field_index >= field_buffer.len() {
                     return Err(JsonParseFailure::TooManyFields);
                 }
-            } else if (data[current_index] >= b'0' && data[current_index] < b'9') || data[current_index] == b'-' {
-                let numeric_start_index = current_index;
-                current_index += 1;
-                skip_json_numeric(&mut current_index, data)?;
-                let numeric_after_index = current_index;
+                field_buffer[current_field_index] = JsonField::new(string_key, JsonValue::Boolean(expect_true));
+                current_field_index += 1;
+            } else if (data[current_data_index] >= b'0' && data[current_data_index] < b'9') || data[current_data_index] == b'-' {
+                let numeric_start_index = current_data_index;
+                current_data_index += 1;
+                skip_json_numeric(&mut current_data_index, data)?;
+                let numeric_after_index = current_data_index;
                 let numeric_string = core::str::from_utf8(&data[numeric_start_index..numeric_after_index]).expect("skipped numeric digits");
                 let numeric_value: i64 = match numeric_string.parse() {
                     Ok(i) => i,
                     Err(_) => return Err(JsonParseFailure::InvalidNumericField),
                 };
-                if let Err(()) = ret.push_field(string_key, JsonValue::Number(numeric_value)) {
+                if current_field_index >= field_buffer.len() {
                     return Err(JsonParseFailure::TooManyFields);
                 }
+                field_buffer[current_field_index] = JsonField::new(string_key, JsonValue::Number(numeric_value));
+                current_field_index += 1;
             } else {
                 return Err(JsonParseFailure::InvalidStructure);
             }
