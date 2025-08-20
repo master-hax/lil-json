@@ -2,7 +2,7 @@
 
 `#![no_std]` Rust crate to parse & serialize JSON
 
-serialization example:
+example object serialization:
 ```
 use lil_json::{JsonObject, JsonValue};
 
