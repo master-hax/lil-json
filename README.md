@@ -1,6 +1,6 @@
 # lil-json
 
-`#![no_std]` Rust crate to parse & serialize JSON
+`#![no_std]` Rust crate to parse & serialize JavaScript Object Notation (JSON)
 
 example object serialization:
 ```rust
@@ -20,7 +20,7 @@ fn main() {
 }
 ```
 
-objects can be serialized into any type that implements `embedded_io::Write`:
+JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html):
 ```rust
 use std::io::stdout;
 use embedded_io_adapters::std::FromStd;
