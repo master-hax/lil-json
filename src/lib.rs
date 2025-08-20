@@ -3,6 +3,7 @@
 use embedded_io::Write;
 use numtoa::base10;
 
+// a primitive JSON value
 #[derive(Debug,PartialEq,Eq,Clone,Copy)]
 pub enum JsonValue<'a> {
     String(&'a str),
@@ -10,6 +11,7 @@ pub enum JsonValue<'a> {
     Number(i64),
 }
 
+/// a field within a JSON object
 #[derive(Debug,PartialEq,Eq,Clone,Copy)]
 pub struct JsonField<'a,'b> {
     pub key: &'a str,
@@ -17,18 +19,19 @@ pub struct JsonField<'a,'b> {
 }
 
 impl <'a,'b> JsonField<'a,'b> {
+    /// create a new JSON object field with the given key & value
     pub fn new(key: &'a str, value: JsonValue<'b>) -> Self {
         JsonField { key, value }
     }
-
+    /// helper to create a new JSON object string field
     pub fn new_string(key: &'a str, value: &'b str) -> Self {
         Self::new(key, JsonValue::String(value))
     }
-
+    /// helper to create a new JSON object number field
     pub fn new_number(key: &'a str, value: i64) -> Self {
         Self::new(key, JsonValue::Number(value))
     }
-
+    /// helper to create a new JSON object boolean field
     pub fn new_boolean(key: &'a str, value: bool) -> Self {
         Self::new(key, JsonValue::Boolean(value))
     }
@@ -51,6 +54,7 @@ pub enum JsonParseFailure {
     InvalidBooleanField,
 }
 
+/// a default JSON field with static lifetime
 pub const EMPTY_FIELD: JsonField<'static,'static> = JsonField{ key: "", value: JsonValue::Number(0)};
 
 impl <'a,'b> Default for JsonField<'a,'b> {
