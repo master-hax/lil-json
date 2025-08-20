@@ -34,6 +34,7 @@ impl <'a,'b> JsonField<'a,'b> {
     }
 }
 
+/// a JSON object that can hold up to MAX_FIELDS fields
 #[derive(Debug)]
 pub struct JsonObject<'a,const MAX_FIELDS: usize> {
     fields: [JsonField<'a,'a>; MAX_FIELDS],
@@ -50,7 +51,7 @@ pub enum JsonParseFailure {
     InvalidBooleanField,
 }
 
-pub const EMPTY_FIELD: JsonField<'static,'static> = JsonField{ key: "", value: JsonValue::String("")};
+pub const EMPTY_FIELD: JsonField<'static,'static> = JsonField{ key: "", value: JsonValue::Number(0)};
 
 impl <'a,'b> Default for JsonField<'a,'b> {
     fn default() -> Self {
