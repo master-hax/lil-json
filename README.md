@@ -20,6 +20,24 @@ fn main() {
 }
 ```
 
+objects can be serialized into any type that implements `embedded_io::Write`:
+```rust
+use std::io::stdout;
+use embedded_io_adapters::std::FromStd;
+use lil_json::{JsonObject, JsonValue};
+
+fn main() {
+    let mut stdout = FromStd::new(stdout());
+    let mut json_object = JsonObject::<10>::new();
+    json_object.push_field("some_number", JsonValue::Number(12345)).unwrap();
+    json_object.push_field("some_string", JsonValue::String("hello world!")).unwrap();
+    json_object.push_field("some_boolean", JsonValue::Boolean(true)).unwrap();
+    json_object.serialize_blocking(&mut stdout).unwrap();
+}
+
+// output: {"some_number":12345,"some_string":"hello world!","some_boolean":true}
+```
+
 the following types are currently supported:
 * objects (currently limited to non-nested objects)
 * string (currently limited to ascii)
