@@ -3,11 +3,14 @@
 use embedded_io::Write;
 use numtoa::base10;
 
-// a primitive JSON value
+/// terminal (non-nested) JSON types
 #[derive(Debug,PartialEq,Eq,Clone,Copy)]
 pub enum JsonValue<'a> {
+    /// a JSON string - it will be automatically escaped
     String(&'a str),
+    /// a JSON boolean
     Boolean(bool),
+    /// a JSON number
     Number(i64),
 }
 
@@ -37,8 +40,7 @@ impl <'a,'b> JsonField<'a,'b> {
     }
 }
 
-/// a JSON Object (rfc8259)
-/// it wraps a buffer of fields
+/// a JSON Object (rfc8259) that wraps a type that implements a buffer of object fields. The easiest way to use it is through the ArrayJsonObject type alias, however you can use JsonObject directly to wrap your own buffer (maybe a Vec)
 #[derive(Debug)]
 pub struct JsonObject<Fields> {
     fields: Fields,
@@ -47,13 +49,20 @@ pub struct JsonObject<Fields> {
 
 
 
+/// the various reasons parsing JSON can fail
 #[derive(Debug)]
 pub enum JsonParseFailure {
+    /// there was no error, but the data slice is incomplete
     Incomplete,
+    /// there was no error, but there were more fields than the provided field buffer could hold
     TooManyFields,
+    /// there was an error in the JSON structure of the data
     InvalidStructure,
+    /// an invalid JSON string was encountered
     InvalidStringField,
+    /// an invalid JSON number was encountered
     InvalidNumericField,
+    /// an invalid JSON boolean was encountered
     InvalidBooleanField,
 }
 
@@ -150,15 +159,17 @@ impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
 }
 
 
-/// ArrayJsonObject is a JsonObject backed by an array.
-/// It is has some extra functionality over a regular JsonObject backed by &mut [u8] or a Vec.
+/// ArrayJsonObject is a type alias for a JsonObject that wraps an array. It is has some additional functionality compared to a normal JsonObject.
 pub type ArrayJsonObject<'a,const N: usize> = JsonObject<[JsonField<'a,'a>; N]>;
 
 impl<'a,const N: usize> ArrayJsonObject<'a,N> {
+
+    /// create a new empty JsonObject backed by an array that holds at most N object member fields
     pub const fn new() -> Self {
         JsonObject::wrap([EMPTY_FIELD; N], 0)
     }
 
+    /// the similar to JsonObject::push but supports const contexts & only returns a reference
     pub const fn push_const(&mut self, key: &'a str, value: JsonValue<'a>) -> Result<(),()> {
         if self.num_fields == N {
             return Err(());
@@ -166,6 +177,14 @@ impl<'a,const N: usize> ArrayJsonObject<'a,N> {
         self.fields[self.num_fields] = JsonField { key, value: value };
         self.num_fields += 1;
         Ok(())
+    }
+
+        /// the same as JsonObject::push but supports const contexts
+    pub const fn pop_const(&mut self) -> Option<&JsonField<'a,'a>> {
+        match self.fields_const().split_last() {
+            None => return None,
+            Some((split,_remaining)) => return Some(split),
+        }
     }
 
     pub fn new_parsed(data: &'a [u8]) -> Result<(usize,Self),JsonParseFailure> {
@@ -241,8 +260,7 @@ fn skip_whitespace(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure
     }
 }
 
-/// the core function that powers the JsonObject API
-/// attempts to parse the fields of a json object from the provided data slice into the provided field buffer, then return (data bytes consumed, parsed field slice) on success
+/// the core function that powers the JsonObject API. It attempts to parse the fields of a json object from the provided data slice into the provided field buffer, then return (data bytes consumed, parsed field slice) on success.
 pub fn parse_json_object<'data,'field_buffer>(data: &'data [u8], field_buffer: &'field_buffer mut [JsonField<'data,'data>]) -> Result<(usize,&'field_buffer[JsonField<'data,'data>]),JsonParseFailure> {
     let mut current_data_index = 0;
     let mut current_field_index = 0;
