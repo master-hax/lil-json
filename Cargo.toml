@@ -28,5 +28,9 @@ embedded-io-adapters = { version = "0.6.2", default-features = false, features =
 
 
 [[example]]
-name = "std_serialize_stdout"
+name = "serialize_array_object"
+required-features = ["std"]
+
+[[example]]
+name = "serialize_minimal"
 required-features = ["std"]

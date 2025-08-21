@@ -240,7 +240,7 @@ impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
     // }
 
     /// attempt to serialize this JsonObject into the provided output, returns the number of bytes written on success
-    pub fn serialize_into<Output: Write>(&self, output: Output) -> Result<usize,Output::Error> {
+    pub fn serialize<Output: Write>(&self, output: Output) -> Result<usize,Output::Error> {
         serialize_json_object(output, self.fields().as_ref())
     }
 }
@@ -611,7 +611,7 @@ mod std {
     impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
         /// convenience method to serialize after wrapping std::io::Write with embedded_io_adapters::std::FromStd
         pub fn serialize_std<Output: StandardLibIoWrite>(&self, output: Output) -> Result<usize,StandardLibIoError> {
-            self.serialize_into(StdIoAdapter::new(output))
+            self.serialize(StdIoAdapter::new(output))
         }
     }
 }
@@ -625,7 +625,7 @@ mod tests {
     fn test_serialize_object_empty() {
         let mut buffer = [0_u8; 1000];
         let test_map = ArrayJsonObject::<50>::new();
-        let n = test_map.serialize_into(buffer.as_mut_slice()).unwrap();
+        let n = test_map.serialize(buffer.as_mut_slice()).unwrap();
         assert_eq!(b"{}", buffer.split_at(n).0)
     }
 
@@ -637,7 +637,7 @@ mod tests {
         test_map.push_field("name", JsonValue::String("John Doe")).unwrap();
         test_map.push_field("iat", JsonValue::Number(1516239022)).unwrap();
         test_map.push_field("something", JsonValue::Boolean(false)).unwrap();
-        let n = test_map.serialize_into(buffer.as_mut_slice()).unwrap();
+        let n = test_map.serialize(buffer.as_mut_slice()).unwrap();
         assert_eq!(br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false}"#, buffer.split_at(n).0)
     }
 
