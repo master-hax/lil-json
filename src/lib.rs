@@ -504,7 +504,7 @@ fn write_escaped_json_string<T: Write>(mut output: T, counter: &mut usize, data:
 
 
 #[cfg(feature = "alloc")]
-pub mod alloc {
+mod alloc {
 
     extern crate alloc as alloclib;
     use core::convert::Infallible;
@@ -531,24 +531,19 @@ pub mod alloc {
 }
 
 #[cfg(feature = "std")]
-pub mod std {
+mod std {
     extern crate std as stdlib;
-    pub use embedded_io_adapters::std::FromStd as StdIoAdapter;
-
+    use embedded_io_adapters::std::FromStd as StdIoAdapter;
     use stdlib::io::Error as StandardLibIoError;
-    use stdlib::io::stdout;
-    use stdlib::io::stderr;
+    use stdlib::io::Write as StandardLibIoWrite;
 
     use crate::FieldBuffer;
     use crate::JsonObject;
 
     impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
-        pub fn serialize_to_stdout(&self) -> Result<usize,StandardLibIoError> {
-            self.serialize_into(StdIoAdapter::new(stdout()))
-        }
-
-        pub fn serialize_to_stderr(&self) -> Result<usize,StandardLibIoError> {
-            self.serialize_into(StdIoAdapter::new(stderr()))
+        /// convenience method to serialize after wrapping std::io::Write with embedded_io_adapters::std::FromStd
+        pub fn serialize_std<Output: StandardLibIoWrite>(&self, output: Output) -> Result<usize,StandardLibIoError> {
+            self.serialize_into(StdIoAdapter::new(output))
         }
     }
 }

@@ -14,7 +14,7 @@ exclude = [
 ]
 
 [features]
-default = ["std"]
+default = []
 std = ["alloc", "embedded-io-adapters/std"]
 alloc = [ "embedded-io/alloc" ]
 embedded-io-adapters = ["dep:embedded-io-adapters"]
@@ -23,3 +23,6 @@ embedded-io-adapters = ["dep:embedded-io-adapters"]
 embedded-io = { version = "0.6.1", default-features = false }
 embedded-io-adapters = { version = "0.6.2", default-features = false, optional = true }
 numtoa = { version = "0.3.1", default-features = false }
+
+[dev-dependencies]
+embedded-io-adapters = { version = "0.6.2", default-features = false, features = ["std"] }
