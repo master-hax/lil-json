@@ -23,32 +23,49 @@ pub struct JsonField<'a,'b> {
 
 impl <'a,'b> JsonField<'a,'b> {
     /// create a new JSON object field with the given key & value
-    pub fn new(key: &'a str, value: JsonValue<'b>) -> Self {
+    pub const fn new(key: &'a str, value: JsonValue<'b>) -> Self {
         JsonField { key, value }
     }
+
+    /// convenience helper to get the json field as a (key,value) tuple
+    pub const fn as_tuple(&self) -> (&'a str, JsonValue<'b>) {
+        (self.key, self.value)
+    }
+
     /// convenience helper to create a new JSON object string field
-    pub fn new_string(key: &'a str, value: &'b str) -> Self {
+    pub const fn new_string(key: &'a str, value: &'b str) -> Self {
         Self::new(key, JsonValue::String(value))
     }
     /// convenience helper to create a new JSON object number field
-    pub fn new_number(key: &'a str, value: i64) -> Self {
+    pub const fn new_number(key: &'a str, value: i64) -> Self {
         Self::new(key, JsonValue::Number(value))
     }
     /// convenience helper to create a new JSON object boolean field
-    pub fn new_boolean(key: &'a str, value: bool) -> Self {
+    pub const fn new_boolean(key: &'a str, value: bool) -> Self {
         Self::new(key, JsonValue::Boolean(value))
     }
 }
 
-/// a JSON Object (rfc8259) that wraps a mutable or immutable buffer of object fields. The easiest way to use it is through the ArrayJsonObject type alias, however you can use JsonObject directly to wrap your own buffer like a heap allocated Vec
-#[derive(Debug)]
+
+/// JsonObject represents an RFC 8259 JSON Object. Tt wraps a mutable or immutable buffer of object fields. The easiest way to use it is through the ArrayJsonObject type alias, however you can use JsonObject directly to wrap your own buffer like a heap allocated Vec
+#[derive(Debug,Clone,Copy)]
 pub struct JsonObject<Fields> {
     fields: Fields,
     num_fields: usize,
 }
 
+/// two JsonObjects are equal if their initialized fields are identical (in the same order)
+impl<'a,T: FieldBuffer<'a>> PartialEq for JsonObject<T> {
+    fn eq(&self, other: &JsonObject<T>) -> bool {
+        self.num_fields == other.num_fields && PartialEq::eq(self.fields.as_ref(), other.fields.as_ref())
+    }
+}
+
+/// PartialEq for JsonObject is reflexive
+impl<'a,T: FieldBuffer<'a>> Eq for JsonObject<T> {}
+
 /// the various reasons parsing JSON can fail
-#[derive(Debug)]
+#[derive(Debug,PartialEq,Eq,Clone,Copy)]
 pub enum JsonParseFailure {
     /// there was no error, but the data slice is incomplete
     Incomplete,
@@ -252,7 +269,7 @@ impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
 
 impl <'a,T: FieldBufferMut<'a> + Default> JsonObject<T> {
 
-    /// convenience method to automatically create an JsonObject if object parsing is successful
+    /// convenience method to automatically create a JsonObject if object parsing is successful
     pub fn default_parsed(data: &'a [u8]) -> Result<(usize,Self),JsonParseFailure> {
         let mut ret = Self::default();
         let (num_bytes,_num_fields) = ret.parse(data)?;
@@ -262,12 +279,12 @@ impl <'a,T: FieldBufferMut<'a> + Default> JsonObject<T> {
 }
 
 
-/// ArrayJsonObject is a type alias for a JsonObject that wraps an array. It is has some additional functionality compared to a normal JsonObject.
+/// ArrayJsonObject is a type alias for a JsonObject that wraps an array. It has extra functionality when compared to any other type of JsonObject.
 pub type ArrayJsonObject<'a,const N: usize> = JsonObject<[JsonField<'a,'a>; N]>;
 
 impl<'a,const N: usize> ArrayJsonObject<'a,N> {
 
-    /// convenience method to call JsonObject::wrap on a new array
+    /// convenience method to initialize a new array & call JsonObject::wrap on it
     pub const fn new() -> Self {
         JsonObject::wrap([EMPTY_FIELD; N])
     }
