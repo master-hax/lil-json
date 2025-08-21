@@ -1,6 +1,6 @@
 # lil-json
 
-lil `#![no_std]` Rust crate to parse & serialize JavaScript Object Notation (JSON). Alloc optional.
+lil `#![no_std]` Rust crate to parse & serialize JavaScript Object Notation (JSON). alloc optional. std optional.
 
 JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html). Serialize a JSON object to stdout with a one-liner!
 ```rust
