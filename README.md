@@ -14,7 +14,7 @@ fn main() {
         JsonField::new("some_string", JsonValue::String("hello world!")),
         JsonField::new("some_boolean", JsonValue::Boolean(true)),
     ]
-    .into_json_object()
+    .as_json_object()
     .serialize(FromStd::new(stdout()))
     .unwrap();
 }
