@@ -1,10 +1,6 @@
 #![no_std]
 
-#[cfg(feature = "alloc")]
-use core::convert::Infallible;
-#[cfg(feature = "alloc")]
-use alloc::{string::ToString, vec::Vec};
-use embedded_io::{Error, ErrorType, Write};
+use embedded_io::{ErrorType, Write};
 use numtoa::base10;
 
 /// terminal (non-nested) JSON types
@@ -143,28 +139,7 @@ impl<T: Write> StringWrite for T {
     }
 }
 
-#[cfg(feature = "alloc")]
-extern crate alloc;
-#[cfg(feature = "alloc")]
-use alloc::string::String;
-
-#[cfg(feature = "alloc")]
-struct StringWrapper<T: ?Sized> {
-    inner: T
-}
-
-#[cfg(feature = "alloc")]
-impl<T: AsMut<String>> ErrorType for StringWrapper<T> {
-    type Error = Infallible;
-}
-
-#[cfg(feature = "alloc")]
-impl<T: AsMut<String>> StringWrite for StringWrapper<T> {
-    fn write_string(&mut self, data: &str) -> (usize,Result<(), <Self as ErrorType>::Error>) {
-        self.inner.as_mut().push_str(data);
-        (data.len(), Ok(()))
-    }
-}
+/// (re-export from embedded-io-adapters)
 
 // TODO: alloc almost done
 // impl <'a,T: FieldBuffer<'a>> ToString for JsonObject<T> {
@@ -201,6 +176,21 @@ impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
     pub fn fields(&self) -> &[JsonField<'a,'a>] {
         self.fields.as_ref().split_at(self.num_fields).0
     }
+
+
+
+    // #[cfg(feature = "std")]
+    // pub fn serialize_to_stdout(&self) -> Result<usize,std::StandardLibIoError> {
+    //     use std::StdIoAdapter;
+
+    //     self.serialize_into(StdIoAdapter::new())
+    // }
+
+    // #[cfg(feature = "std")]
+    // pub fn serialize_to_stderr(&self) -> Result<usize,std::S> {
+    //     use embedded_io_adapters::std::FromStd;
+    //     self.serialize_into(FromStd::new(stdlib::io::stderr()))
+    // }
 
     /// attempt to serialize this JsonObject into the provided output, returns the number of bytes written on success
     pub fn serialize_into<Output: Write>(&self, output: Output) -> Result<usize,Output::Error> {
@@ -512,6 +502,57 @@ fn write_escaped_json_string<T: Write>(mut output: T, counter: &mut usize, data:
     Ok(())
 }
 
+
+#[cfg(feature = "alloc")]
+pub mod alloc {
+
+    extern crate alloc as alloclib;
+    use core::convert::Infallible;
+
+    use alloclib::string::String;
+    use embedded_io::ErrorType;
+
+    use crate::StringWrite;
+
+    struct _StringWrapper<T: ?Sized> {
+        inner: T
+    }
+
+    impl<T: AsMut<String>> ErrorType for _StringWrapper<T> {
+        type Error = Infallible;
+    }
+
+    impl<T: AsMut<String>> StringWrite for _StringWrapper<T> {
+        fn write_string(&mut self, data: &str) -> (usize,Result<(), <Self as ErrorType>::Error>) {
+            self.inner.as_mut().push_str(data);
+            (data.len(), Ok(()))
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+pub mod std {
+    extern crate std as stdlib;
+    pub use embedded_io_adapters::std::FromStd as StdIoAdapter;
+
+    use stdlib::io::Error as StandardLibIoError;
+    use stdlib::io::stdout;
+    use stdlib::io::stderr;
+
+    use crate::FieldBuffer;
+    use crate::JsonObject;
+
+    impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
+        pub fn serialize_to_stdout(&self) -> Result<usize,StandardLibIoError> {
+            self.serialize_into(StdIoAdapter::new(stdout()))
+        }
+
+        pub fn serialize_to_stderr(&self) -> Result<usize,StandardLibIoError> {
+            self.serialize_into(StdIoAdapter::new(stderr()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -548,6 +589,7 @@ mod tests {
     fn test_parse_object_success_simple() {
         let data = br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false}"#;
         let (data_end,json_object) = ArrayJsonObject::<50>::new_parsed(data).unwrap();
+        assert_eq!(data_end, data.len());
         let test_fields = json_object.fields();
         assert_eq!(4, test_fields.len());
         assert_eq!(JsonField { key: "sub", value: JsonValue::String("1234567890")}, test_fields[0]);
