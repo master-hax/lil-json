@@ -446,7 +446,7 @@ mod tests {
         test_map.push_field("iat", JsonValue::Number(1516239022)).unwrap();
         test_map.push_field("something", JsonValue::Boolean(false)).unwrap();
         let n = test_map.serialize(buffer.as_mut_slice()).unwrap();
-        assert_eq!(b"{\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022,\"something\":false}", buffer.split_at(n).0)
+        assert_eq!(br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false}"#, buffer.split_at(n).0)
     }
 
     #[test]
@@ -458,7 +458,7 @@ mod tests {
 
     #[test]
     fn test_parse_object_success_simple() {
-        let data = b"{\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022,\"something\":false}";
+        let data = br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false}"#;
         let (data_end,json_object) = ArrayJsonObject::<50>::new_parsed(data).unwrap();
         let test_fields = json_object.fields();
         assert_eq!(4, test_fields.len());
@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_parse_object_failure_incomplete_brace() {
-        match ArrayJsonObject::<50>::new_parsed(b"{\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022,\"something\":false") {
+        match ArrayJsonObject::<50>::new_parsed(br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false"#) {
             Err(JsonParseFailure::Incomplete) => {},
             other => panic!("{:?}", other)
         }
@@ -486,7 +486,7 @@ mod tests {
 
     #[test]
     fn test_parse_object_failure_too_many_fields() {
-        match ArrayJsonObject::<0>::new_parsed(b"{\"some\":\"thing\"}") {
+        match ArrayJsonObject::<0>::new_parsed(br#"{"some":"thing"}"#) {
             Err(JsonParseFailure::TooManyFields) => {},
             other => panic!("{:?}", other)
         }

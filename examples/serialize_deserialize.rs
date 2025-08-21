@@ -18,7 +18,7 @@ fn main() {
     let mut buffer = [0_u8; 128];
     let serialized_end = json_object.serialize(buffer.as_mut_slice()).unwrap();
     let serialized = buffer.split_at(serialized_end).0;
-    assert_eq!(b"{\"some_number\":12345,\"some_string\":\"hello world!\",\"some_boolean\":true}", serialized);
+    assert_eq!(br#"{"some_number":12345,"some_string":"hello world!","some_boolean":true}"#, serialized);
 
     // parse a JSON object from the serialized data
     let (data_end,deserialized_object) = ArrayJsonObject::<3>::new_parsed(serialized).unwrap();
