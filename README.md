@@ -51,6 +51,7 @@ the following types are not currently supported:
 
 TODO:
 - [ ] support null type
+- [ ] alloc features
 - [ ] expose serialization methods for terminal types
 - [ ] support arrays
 - [ ] support parsing arbitrary types
