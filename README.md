@@ -20,19 +20,21 @@ fn main() {
 }
 ```
 
-JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html):
+JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html). Serialize a JSON object to stdout with a one-liner!
 ```rust
 use std::io::stdout;
 use embedded_io_adapters::std::FromStd;
-use lil_json::{JsonObject, JsonValue};
+use lil_json::{FieldBuffer, JsonField, JsonValue};
 
 fn main() {
-    let mut stdout = FromStd::new(stdout());
-    let mut json_object = JsonObject::<10>::new();
-    json_object.push_field("some_number", JsonValue::Number(12345)).unwrap();
-    json_object.push_field("some_string", JsonValue::String("hello world!")).unwrap();
-    json_object.push_field("some_boolean", JsonValue::Boolean(true)).unwrap();
-    json_object.serialize_blocking(&mut stdout).unwrap();
+    [
+        JsonField::new("some_number", JsonValue::Number(12345)),
+        JsonField::new("some_string", JsonValue::String("hello world!")),
+        JsonField::new("some_boolean", JsonValue::Boolean(true)),
+    ]
+    .into_json_object()
+    .serialize(FromStd::new(stdout()))
+    .unwrap();
 }
 
 // output: {"some_number":12345,"some_string":"hello world!","some_boolean":true}
