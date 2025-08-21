@@ -1,7 +1,7 @@
 use std::io::stdout;
 use embedded_io::Write;
 use embedded_io_adapters::std::FromStd;
-use lil_json::{ArrayJsonObject, JsonObject, JsonValue};
+use lil_json::{ArrayJsonObject, JsonValue};
 
 
 fn main() {

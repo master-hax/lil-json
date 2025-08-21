@@ -1,6 +1,6 @@
 #![no_std]
 
-use lil_json::{ArrayJsonObject, JsonField, JsonObject};
+use lil_json::{ArrayJsonObject, JsonField};
 
 fn main() {
     let number_field = JsonField::new_number("some_number", 12345);

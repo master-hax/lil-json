@@ -144,12 +144,8 @@ impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
         Ok(())
     }
 
-    /// attempt to parse some data into this JsonObject
-    /// returns a tuple of (object end position, num fields found) on success
-    pub fn parse(
-        &mut self,
-        data: &'a [u8],
-        ) -> Result<(usize,usize),JsonParseFailure> {
+    /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject - returns a tuple of (num bytes consumed, num fields parsed) on success
+    pub fn parse(&mut self, data: &'a [u8]) -> Result<(usize,usize),JsonParseFailure> {
         let (data_end, parsed_fields) = parse_json_object(data, self.fields.as_mut())?;
         let new_num_fields = parsed_fields.len();
         self.num_fields = new_num_fields;
@@ -190,7 +186,7 @@ impl<'a,const N: usize> ArrayJsonObject<'a,N> {
     /// convenience method to automatically create an ArrayJsonObject if object parsing is successful
     pub fn new_parsed(data: &'a [u8]) -> Result<(usize,Self),JsonParseFailure> {
         let mut ret = Self::new();
-        let (data_end,num_headers) = ret.parse(data)?;
+        let (data_end,_num_headers) = ret.parse(data)?;
         Ok((data_end,ret))
     }
 
@@ -395,7 +391,6 @@ fn write_escaped_json_string<T: Write>(mut output: T, counter: &mut usize, data:
 
 #[cfg(test)]
 mod tests {
-    use core::default;
 
     use super::*;
 
@@ -421,8 +416,9 @@ mod tests {
 
     #[test]
     fn test_parse_object_success_empty() {
-        let (data_end,json_object) = ArrayJsonObject::<0>::new_parsed(b"{}").unwrap();
+        let (bytes_consumed,json_object) = ArrayJsonObject::<0>::new_parsed(b"{}").unwrap();
         assert!(json_object.fields().is_empty());
+        assert_eq!(bytes_consumed, 2);
     }
 
     #[test]
