@@ -73,16 +73,37 @@ impl <'a,'b> Default for JsonField<'a,'b> {
     }
 }
 
-impl<'a,T: FieldBuffer<'a> + Default> Default for JsonObject<T> {
+impl<'a,T: FieldBuffer<'a> + Default + ?Sized> Default for JsonObject<T> {
     fn default() -> Self {
         JsonObject { fields: T::default(), num_fields: 0 }
     }
 }
 
 /// this trait is automatically implemented for all types that implement AsRef<[JsonField<'data,'data>]>
-pub trait FieldBuffer<'data>: AsRef<[JsonField<'data,'data>]> {}
+pub trait FieldBuffer<'data>: AsRef<[JsonField<'data,'data>]> {
+
+    /// convenience one-liner to wrap an immutable reference to a collection of JsonFields with a JsonObject
+    fn into_json_object(self) -> JsonObject<Self> where Self: Sized {
+        let len = self.as_ref().len();
+        JsonObject::wrap(self, len)
+    }
+    
+    /// convenience one-liner to wrap an immutable reference to a collection of JsonFields with a JsonObject
+    fn as_json_object(&self) -> JsonObject<&Self> {
+        JsonObject::wrap(self, self.as_ref().len())
+    }
+
+}
 /// this trait is automatically implemented for all types that implement AsMut<[JsonField<'data,'data>]>
-pub trait FieldBufferMut<'a>: FieldBuffer<'a> +  AsMut<[JsonField<'a,'a>]> {}
+pub trait FieldBufferMut<'a>: FieldBuffer<'a> +  AsMut<[JsonField<'a,'a>]> {
+
+    /// convenience one-liner to wrap a mutable reference to a collection of JsonFields with a JsonObject
+    fn as_json_object_mut(&mut self) -> JsonObject<&mut Self> {
+        let len = self.as_ref().len();
+        JsonObject::wrap(self, len)
+    }
+
+}
 
 impl <'a,T: AsRef<[JsonField<'a,'a>]>> FieldBuffer<'a> for T {}
 impl <'a,T: FieldBuffer<'a> + AsMut<[JsonField<'a,'a>]>> FieldBufferMut<'a> for T {}
@@ -97,7 +118,7 @@ impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
     }
 
     pub fn serialize<Output: Write>(&self, output: Output) -> Result<usize,Output::Error> {
-        serialize_json_object(output, self.fields())
+        serialize_json_object(output, self.fields().as_ref())
     }
 }
 
@@ -338,7 +359,13 @@ fn skip_whitespace(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure
 }
 
 /// the core function that powers serialization in the JsonObject API. It attempts to serialize the provided fields as a JSON object into the provided output, & returns the number of bytes written on success.
-pub fn serialize_json_object<'data,Output: Write, Fields: FieldBuffer<'data>>(mut output: Output, fields: Fields) -> Result<usize, Output::Error> {
+pub fn serialize_json_object<
+'data,
+Output: Write,
+>(
+    mut output: Output,
+    fields: &[JsonField<'data,'data>],
+) -> Result<usize, Output::Error> {
     let mut ret = 0;
     tracked_write(&mut output,&mut ret , "{")?;
     let mut field_needs_comma = false;
