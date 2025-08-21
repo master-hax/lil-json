@@ -23,26 +23,59 @@ impl <'a,'b> JsonField<'a,'b> {
     pub fn new(key: &'a str, value: JsonValue<'b>) -> Self {
         JsonField { key, value }
     }
-    /// helper to create a new JSON object string field
+    /// convenience helper to create a new JSON object string field
     pub fn new_string(key: &'a str, value: &'b str) -> Self {
         Self::new(key, JsonValue::String(value))
     }
-    /// helper to create a new JSON object number field
+    /// convenience helper to create a new JSON object number field
     pub fn new_number(key: &'a str, value: i64) -> Self {
         Self::new(key, JsonValue::Number(value))
     }
-    /// helper to create a new JSON object boolean field
+    /// convenience helper to create a new JSON object boolean field
     pub fn new_boolean(key: &'a str, value: bool) -> Self {
         Self::new(key, JsonValue::Boolean(value))
     }
 }
 
-/// a JSON object that can hold up to MAX_FIELDS fields
+/// a JSON Object (rfc8259)
+/// it wraps a collection of member fields
 #[derive(Debug)]
-pub struct JsonObject<'a,const MAX_FIELDS: usize> {
-    fields: [JsonField<'a,'a>; MAX_FIELDS],
+pub struct JsonObject<Fields> {
+    fields: Fields,
     num_fields: usize,
 }
+
+/// ArrayJsonObject is a JsonObject backed by an array.
+/// It is has some extra functionality over a regular JsonObject backed by &mut [u8] or a Vec.
+pub type ArrayJsonObject<'a,const N: usize> = JsonObject<[JsonField<'a,'a>; N]>;
+
+impl<'a,const N: usize> ArrayJsonObject<'a,N> {
+    pub const fn new() -> Self {
+        JsonObject::wrap([EMPTY_FIELD; N], 0)
+    }
+
+    pub const fn push_const(&mut self, key: &'a str, value: JsonValue<'a>) -> Result<(),()> {
+        if self.num_fields == N {
+            return Err(());
+        }
+        self.fields[self.num_fields] = JsonField { key, value: value };
+        self.num_fields += 1;
+        Ok(())
+    }
+
+    pub fn new_parsed(data: &'a [u8]) -> Result<(usize,Self),JsonParseFailure> {
+        let mut ret = Self::new();
+        let (data_end,num_headers) = ret.parse(data)?;
+        Ok((data_end,ret))
+    }
+
+}
+
+// impl<'a,const N: usize> Default for ArrayJsonObject<'a,N> {
+//     fn default() -> Self {
+//         Self::new()
+//     }
+// }
 
 #[derive(Debug)]
 pub enum JsonParseFailure {
@@ -63,31 +96,66 @@ impl <'a,'b> Default for JsonField<'a,'b> {
     }
 }
 
-impl<'a,const MAX_FIELDS: usize> Default for JsonObject<'a,MAX_FIELDS> {
+impl<'a,T: FieldBufferMut<'a> + Default> Default for JsonObject<T> {
     fn default() -> Self {
-        Self::new()
+        JsonObject { fields: T::default(), num_fields: 0 }
     }
 }
 
-impl <'a,const MAX_FIELDS: usize> JsonObject<'a,MAX_FIELDS> {
+pub trait FieldBuffer<'data>: AsRef<[JsonField<'data,'data>]> {}
+pub trait FieldBufferMut<'a>: FieldBuffer<'a> +  AsMut<[JsonField<'a,'a>]> {}
 
-    pub const fn new() -> Self {
-        JsonObject { fields: [EMPTY_FIELD; MAX_FIELDS], num_fields: 0 }
+impl <'a,T: AsRef<[JsonField<'a,'a>]>> FieldBuffer<'a> for T {}
+impl <'a,T: FieldBuffer<'a> + AsMut<[JsonField<'a,'a>]>> FieldBufferMut<'a> for T {}
+
+
+// impl <'a,T: AsRef<[JsonField<'a,'a>]> +  AsMut<[JsonField<'a,'a>]>> FieldBufferMut<'a> for T {}
+
+impl<'a,T: FieldBufferMut<'a>> From<T> for JsonObject<T> {
+    fn from(field_buffer: T) -> Self {
+        let num_headers = field_buffer.as_ref().len();
+        JsonObject::wrap(field_buffer, num_headers)
+    }
+}
+
+impl <'data,const N: usize> JsonObject<[JsonField<'data,'data>; N]> {
+    pub const fn new_array() -> JsonObject<[JsonField<'static, 'static>; N]> {
+        JsonObject::wrap([EMPTY_FIELD; N], 0)
+    }
+}
+
+impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
+    pub const fn wrap(fields: T, num_fields: usize) -> Self {
+        JsonObject { fields, num_fields }
+    }
+}
+
+impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
+    pub fn fields(&self) -> &[JsonField<'a,'a>] {
+        self.fields.as_ref().split_at(self.num_fields).0
+    }
+}
+
+impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
+
+    pub fn fields_mut(&mut self) -> &mut [JsonField<'a,'a>] {
+        self.fields.as_mut().split_at_mut(self.num_fields).0
     }
 
-    pub const fn as_slice(&self) -> &[JsonField<'a,'a>] {
-        self.fields.split_at(self.num_fields).0
+    pub fn push_field<'x: 'a,'y: 'a>(&mut self, key: &'x str, value: JsonValue<'y>) -> Result<(),()> {
+        if self.num_fields == self.fields.as_ref().len(){
+            return Err(());
+        }
+        self.fields.as_mut()[self.num_fields] = JsonField { key, value };
+        self.num_fields += 1;
+        Ok(())
     }
 
-    pub const fn as_mut_slice(&mut self) -> &mut [JsonField<'a,'a>] {
-        self.fields.split_at_mut(self.num_fields).0
-    }
-
-    pub const fn push<'x: 'a,'y: 'a>(&mut self, field: JsonField<'x,'y>) -> Result<(),JsonField<'x,'y>> {
-        if self.num_fields == MAX_FIELDS {
+    pub fn push<'x: 'a,'y: 'a>(&mut self, field: JsonField<'x,'y>) -> Result<(),JsonField<'x,'y>> {
+        if self.num_fields == self.fields.as_ref().len(){
             return Err(field);
         }
-        self.fields[self.num_fields] = field;
+        self.fields.as_mut()[self.num_fields] = field;
         self.num_fields += 1;
         Ok(())
     }
@@ -96,32 +164,23 @@ impl <'a,const MAX_FIELDS: usize> JsonObject<'a,MAX_FIELDS> {
         if self.num_fields == 0 {
             return None;
         }
-        let field =  core::mem::take(&mut self.fields[self.num_fields]);
+        let field =  core::mem::take(&mut self.fields.as_mut()[self.num_fields]);
         self.num_fields -= 1;
         Some(field)
     }
 
-    pub const fn push_field(&mut self, key: &'a str, value: JsonValue<'a>) -> Result<(),()> {
-        if self.num_fields == MAX_FIELDS {
-            return Err(());
-        }
-        self.fields[self.num_fields] = JsonField { key, value: value };
-        self.num_fields += 1;
-        Ok(())
+    pub fn parse<'me>(
+        &'me mut self,
+        data: &'a [u8],
+        ) -> Result<(usize,usize),JsonParseFailure> {
+        let (data_end, parsed_fields) = parse_json_object(data, self.fields.as_mut())?;
+        let new_num_fields = parsed_fields.len();
+        self.num_fields = new_num_fields;
+        Ok((data_end,new_num_fields))
     }
 
-    pub fn parse_from(data: &'a [u8]) -> Result<(usize,Self),JsonParseFailure> {
-        let mut fields = [EMPTY_FIELD; MAX_FIELDS];
-        let (n, num_fields) = parse_json_object(data, fields.as_mut_slice())?;
-        let ret = Self {
-            fields,
-            num_fields
-        };
-        Ok((n,ret))
-    }
-
-    pub fn serialize_blocking<T: Write>(&self, output: T) -> Result<usize,T::Error> {
-        serialize_json_object(output, self.as_slice())
+    pub fn serialize_blocking<Output: Write>(&self, output: Output) -> Result<usize,Output::Error> {
+        serialize_json_object(output, self.fields())
     }
 
 }
@@ -184,7 +243,7 @@ fn skip_whitespace(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure
 }
 
 /// parse a json object into the provided field buffer & return (data bytes consumed,num fields parsed) on success
-pub fn parse_json_object<'a>(data: &'a [u8], field_buffer: &mut [JsonField<'a,'a>]) -> Result<(usize,usize),JsonParseFailure> {
+pub fn parse_json_object<'data,'field_buffer>(data: &'data [u8], field_buffer: &'field_buffer mut [JsonField<'data,'data>]) -> Result<(usize,&'field_buffer[JsonField<'data,'data>]),JsonParseFailure> {
     let mut current_data_index = 0;
     let mut current_field_index = 0;
     let mut map_entry_needs_comma = false;
@@ -197,7 +256,7 @@ pub fn parse_json_object<'a>(data: &'a [u8], field_buffer: &mut [JsonField<'a,'a
     while current_data_index < data.len()  {
         skip_whitespace(&mut current_data_index, data)?;
         if data[current_data_index] == b'}' {
-            return Ok((current_data_index+1,current_field_index))
+            return Ok((current_data_index+1,field_buffer.split_at(current_field_index).0))
         } else if map_entry_needs_comma  {
             if data[current_data_index] != b',' {
                 return Err(JsonParseFailure::InvalidStructure);
@@ -282,11 +341,11 @@ fn write_escaped_json_string<T: Write>(mut output: T, counter: &mut usize, data:
 }
 
 /// serialize a json object with the provided fields into output & return the number of bytes written on success
-pub fn serialize_json_object<T: Write>(mut output: T, fields: &[JsonField]) -> Result<usize, T::Error> {
+pub fn serialize_json_object<'data,Output: Write, Fields: FieldBuffer<'data>>(mut output: Output, fields: Fields) -> Result<usize, Output::Error> {
     let mut ret = 0;
     tracked_write(&mut output,&mut ret , "{")?;
     let mut field_needs_comma = false;
-    for field in fields.iter() {
+    for field in fields.as_ref().iter() {
         if field_needs_comma {
             tracked_write(&mut output,&mut ret , ",")?;
         } else {
@@ -316,12 +375,14 @@ pub fn serialize_json_object<T: Write>(mut output: T, fields: &[JsonField]) -> R
 
 #[cfg(test)]
 mod tests {
+    use core::default;
+
     use super::*;
 
     #[test]
     fn test_serialize_object_empty() {
         let mut buffer = [0_u8; 1000];
-        let test_map = JsonObject::<0>::default();
+        let test_map = ArrayJsonObject::<50>::new();
         let n = test_map.serialize_blocking(buffer.as_mut_slice()).unwrap();
         assert_eq!(b"{}", buffer.split_at(n).0)
     }
@@ -329,7 +390,7 @@ mod tests {
     #[test]
     fn test_serialize_object_simple() {
         let mut buffer = [0_u8; 1000];
-        let mut test_map = JsonObject::<50>::default();
+        let mut test_map = ArrayJsonObject::<50>::new();
         test_map.push_field("sub", JsonValue::String("1234567890")).unwrap();
         test_map.push_field("name", JsonValue::String("John Doe")).unwrap();
         test_map.push_field("iat", JsonValue::Number(1516239022)).unwrap();
@@ -340,18 +401,15 @@ mod tests {
 
     #[test]
     fn test_parse_object_success_empty() {
-        let data = b"{}";
-        let (n,test_map) = JsonObject::<0>::parse_from(data).unwrap();
-        assert_eq!(data.len(),n);
-        assert!(test_map.as_slice().is_empty());
+        let (data_end,json_object) = ArrayJsonObject::<0>::new_parsed(b"{}").unwrap();
+        assert!(json_object.fields().is_empty());
     }
 
     #[test]
     fn test_parse_object_success_simple() {
         let data = b"{\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022,\"something\":false}";
-        let (n,test_map) = JsonObject::<50>::parse_from(data).unwrap();
-        assert_eq!(data.len(),n);
-        let test_fields = test_map.as_slice();
+        let (data_end,json_object) = ArrayJsonObject::<50>::new_parsed(data).unwrap();
+        let test_fields = json_object.fields();
         assert_eq!(4, test_fields.len());
         assert_eq!(JsonField { key: "sub", value: JsonValue::String("1234567890")}, test_fields[0]);
         assert_eq!(JsonField { key: "name", value: JsonValue::String("John Doe")}, test_fields[1]);
@@ -361,23 +419,23 @@ mod tests {
 
     #[test]
     fn test_parse_object_failure_incomplete_simple() {
-        match JsonObject::<50>::parse_from(b"{") {
+        match ArrayJsonObject::<50>::new_parsed(b"{") {
+            Err(JsonParseFailure::Incomplete) => {},
+            _ => panic!("incomplete json")
+        }
+    }
+
+    #[test]
+    fn test_parse_object_failure_incomplete_brace() {
+        match ArrayJsonObject::<50>::new_parsed(b"{\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022,\"something\":false") {
             Err(JsonParseFailure::Incomplete) => {},
             other => panic!("{:?}", other)
         }
     }
 
     #[test]
-    fn test_parse_object_failure_incomplete_brace() {
-        match JsonObject::<50>::parse_from(b"{\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022,\"something\":false") {
-            Err(JsonParseFailure::Incomplete) => {},
-            other => panic!("{:?}", other)
-        }
-    }
-
-        #[test]
     fn test_parse_object_failure_too_many_fields() {
-        match JsonObject::<0>::parse_from(b"{\"some\":\"thing\"}") {
+        match ArrayJsonObject::<0>::new_parsed(b"{\"some\":\"thing\"}") {
             Err(JsonParseFailure::TooManyFields) => {},
             other => panic!("{:?}", other)
         }

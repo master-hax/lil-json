@@ -1,12 +1,12 @@
 use std::io::stdout;
 use embedded_io::Write;
 use embedded_io_adapters::std::FromStd;
-use lil_json::{JsonObject, JsonValue};
+use lil_json::{ArrayJsonObject, JsonObject, JsonValue};
 
 
 fn main() {
     let mut stdout = FromStd::new(stdout());
-    let mut json_object = JsonObject::<10>::new();
+    let mut json_object = ArrayJsonObject::<10>::new();
     json_object.push_field("some_number", JsonValue::Number(12345)).unwrap();
     json_object.push_field("some_string", JsonValue::String("hello world!")).unwrap();
     json_object.push_field("some_boolean", JsonValue::Boolean(true)).unwrap();
