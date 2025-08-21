@@ -1,24 +1,6 @@
 # lil-json
 
-lil `#![no_std]` Rust crate to parse & serialize JavaScript Object Notation (JSON)
-
-example object serialization:
-```rust
-use lil_json::{JsonObject, JsonValue};
-
-fn main() {
-    let mut buffer = [0_u8; 256];
-    let mut json_object = JsonObject::<10>::new();
-    json_object.push_field("some_number", JsonValue::Number(12345)).unwrap();
-    json_object.push_field("some_string", JsonValue::String("hello world!")).unwrap();
-    json_object.push_field("some_boolean", JsonValue::Boolean(true)).unwrap();
-    let n = json_object.serialize_blocking(buffer.as_mut_slice()).unwrap();
-    assert_eq!(
-        b"{\"some_number\":12345,\"some_string\":\"hello world!\",\"some_boolean\":true}",
-        buffer.split_at(n).0,
-    )
-}
-```
+lil `#![no_std]` Rust crate to parse & serialize JavaScript Object Notation (JSON). Alloc optional.
 
 JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html). Serialize a JSON object to stdout with a one-liner!
 ```rust
