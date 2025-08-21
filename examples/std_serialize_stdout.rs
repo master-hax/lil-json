@@ -9,7 +9,7 @@ fn main() {
         JsonField::new("some_boolean", JsonValue::Boolean(true)),
     ]
     .into_json_object()
-    .serialize(FromStd::new(stdout()))
+    .serialize_into(FromStd::new(stdout()))
     .unwrap();
 }
 

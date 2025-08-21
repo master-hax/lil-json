@@ -79,67 +79,79 @@ impl<'a,T: FieldBuffer<'a> + Default + ?Sized> Default for JsonObject<T> {
     }
 }
 
-/// this trait is automatically implemented for all types that implement AsRef<[JsonField<'data,'data>]>
+// trait for an optionally mutable collection of fields
 pub trait FieldBuffer<'data>: AsRef<[JsonField<'data,'data>]> {
 
-    /// convenience one-liner to wrap an immutable reference to a collection of JsonFields with a JsonObject
+    /// convenience one-liner to call JsonObject::wrap_init on this Sized type, consuming it
     fn into_json_object(self) -> JsonObject<Self> where Self: Sized {
-        let len = self.as_ref().len();
-        JsonObject::wrap(self, len)
+        JsonObject::wrap_init(self)
     }
     
-    /// convenience one-liner to wrap an immutable reference to a collection of JsonFields with a JsonObject
+    /// convenience one-liner to call JsonObject::wrap_init on an immutable reference to this type
     fn as_json_object(&self) -> JsonObject<&Self> {
-        JsonObject::wrap(self, self.as_ref().len())
+        JsonObject::wrap_init(self)
     }
 
 }
-/// this trait is automatically implemented for all types that implement AsMut<[JsonField<'data,'data>]>
+
+/// FieldBuffer is automatically implemented for all types that implement AsRef<[JsonField<'data,'data>]>
+impl <'a,T: AsRef<[JsonField<'a,'a>]>> FieldBuffer<'a> for T {}
+
+// trait for a  mutable collection of fields
 pub trait FieldBufferMut<'a>: FieldBuffer<'a> +  AsMut<[JsonField<'a,'a>]> {
 
-    /// convenience one-liner to wrap a mutable reference to a collection of JsonFields with a JsonObject
+    /// convenience one-liner to call JsonObject::wrap_init on a mutable reference to this type
     fn as_json_object_mut(&mut self) -> JsonObject<&mut Self> {
-        let len = self.as_ref().len();
-        JsonObject::wrap(self, len)
+        JsonObject::wrap_init(self)
     }
 
 }
 
-impl <'a,T: AsRef<[JsonField<'a,'a>]>> FieldBuffer<'a> for T {}
+/// FieldBufferMut is automatically implemented for all types that implement FieldBuffer + AsMut<[JsonField<'data,'data>]>
 impl <'a,T: FieldBuffer<'a> + AsMut<[JsonField<'a,'a>]>> FieldBufferMut<'a> for T {}
 
 impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
-    pub const fn wrap(fields: T, num_fields: usize) -> Self {
+
+    pub const fn wrap(fields: T) -> Self {
+        JsonObject { fields, num_fields: 0 }
+    }
+
+    /// wrap a collection of fields into a JsonObject and considers them to be initialized
+    pub fn wrap_init(fields: T) -> Self {
+        let num_fields = fields.as_ref().len();
         JsonObject { fields, num_fields }
     }
 
+    /// get the number of initialized fields in this JsonObject. Same as self.fields().len().
     pub const fn len(&self) -> usize {
         self.num_fields
     }
 
+    /// get the max number of fields this JsonObject can store.
     pub fn capacity(&self) -> usize {
         self.fields.as_ref().len()
     }
 
+    /// get an immutable reference to the initialized fields of this JsonObject
     pub fn fields(&self) -> &[JsonField<'a,'a>] {
         self.fields.as_ref().split_at(self.num_fields).0
     }
 
-    pub fn serialize<Output: Write>(&self, output: Output) -> Result<usize,Output::Error> {
+    /// attempt to serialize this JsonObject into the provided output, returns the number of bytes written on success
+    pub fn serialize_into<Output: Write>(&self, output: Output) -> Result<usize,Output::Error> {
         serialize_json_object(output, self.fields().as_ref())
     }
 }
 
 impl<'a,T: FieldBuffer<'a>> From<T> for JsonObject<T> {
     fn from(field_buffer: T) -> Self {
-        let num_headers = field_buffer.as_ref().len();
-        JsonObject::wrap(field_buffer, num_headers)
+        JsonObject::wrap_init(field_buffer)
     }
 }
 
 impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
 
-    /// get a mutable reference to the initialized fields
+    /// get a mutable reference to the initialized fields of this JsonObject
     pub fn fields_mut(&mut self) -> &mut [JsonField<'a,'a>] {
         self.fields.as_mut().split_at_mut(self.num_fields).0
     }
@@ -183,15 +195,33 @@ impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
 
 }
 
+impl <'a,T: FieldBufferMut<'a> + Default> JsonObject<T> {
+
+    /// convenience method to automatically create an JsonObject if object parsing is successful
+    pub fn default_parsed(data: &'a [u8]) -> Result<(usize,Self),JsonParseFailure> {
+        let mut ret = Self::default();
+        let (num_bytes,_num_fields) = ret.parse(data)?;
+        Ok((num_bytes,ret))
+    }
+
+}
+
 
 /// ArrayJsonObject is a type alias for a JsonObject that wraps an array. It is has some additional functionality compared to a normal JsonObject.
 pub type ArrayJsonObject<'a,const N: usize> = JsonObject<[JsonField<'a,'a>; N]>;
 
 impl<'a,const N: usize> ArrayJsonObject<'a,N> {
 
-    /// convenience method to wrap a JsonObject over an array
+    /// convenience method to call JsonObject::wrap on a new array
     pub const fn new() -> Self {
-        JsonObject::wrap([EMPTY_FIELD; N], 0)
+        JsonObject::wrap([EMPTY_FIELD; N])
+    }
+
+    /// convenience method to automatically create an ArrayJsonObject if object parsing is successful
+    pub fn new_parsed(data: &'a [u8]) -> Result<(usize,Self),JsonParseFailure> {
+        let mut ret = Self::new();
+        let (data_end,_num_headers) = ret.parse(data)?;
+        Ok((data_end,ret))
     }
 
     /// similar to JsonObject::push but supports const contexts & only returns a reference
@@ -210,13 +240,6 @@ impl<'a,const N: usize> ArrayJsonObject<'a,N> {
             None => return None,
             Some((split,_remaining)) => return Some(split),
         }
-    }
-
-    /// convenience method to automatically create an ArrayJsonObject if object parsing is successful
-    pub fn new_parsed(data: &'a [u8]) -> Result<(usize,Self),JsonParseFailure> {
-        let mut ret = Self::new();
-        let (data_end,_num_headers) = ret.parse(data)?;
-        Ok((data_end,ret))
     }
 
     /// same as JsonObject::fields but supports const contexts
@@ -433,7 +456,7 @@ mod tests {
     fn test_serialize_object_empty() {
         let mut buffer = [0_u8; 1000];
         let test_map = ArrayJsonObject::<50>::new();
-        let n = test_map.serialize(buffer.as_mut_slice()).unwrap();
+        let n = test_map.serialize_into(buffer.as_mut_slice()).unwrap();
         assert_eq!(b"{}", buffer.split_at(n).0)
     }
 
@@ -445,7 +468,7 @@ mod tests {
         test_map.push_field("name", JsonValue::String("John Doe")).unwrap();
         test_map.push_field("iat", JsonValue::Number(1516239022)).unwrap();
         test_map.push_field("something", JsonValue::Boolean(false)).unwrap();
-        let n = test_map.serialize(buffer.as_mut_slice()).unwrap();
+        let n = test_map.serialize_into(buffer.as_mut_slice()).unwrap();
         assert_eq!(br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false}"#, buffer.split_at(n).0)
     }
 
