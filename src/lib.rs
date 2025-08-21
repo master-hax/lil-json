@@ -1,6 +1,10 @@
 #![no_std]
 
-use embedded_io::Write;
+#[cfg(feature = "alloc")]
+use core::convert::Infallible;
+#[cfg(feature = "alloc")]
+use alloc::{string::ToString, vec::Vec};
+use embedded_io::{Error, ErrorType, Write};
 use numtoa::base10;
 
 /// terminal (non-nested) JSON types
@@ -73,6 +77,13 @@ impl <'a,'b> Default for JsonField<'a,'b> {
     }
 }
 
+impl<T> JsonObject<T> {
+    /// consume this JsonObject to return (field buffer, num fields considered initialized)
+    pub fn into_inner(self) -> (T,usize) {
+        (self.fields,self.num_fields)
+    }
+}
+
 impl<'a,T: FieldBuffer<'a> + Default + ?Sized> Default for JsonObject<T> {
     fn default() -> Self {
         JsonObject { fields: T::default(), num_fields: 0 }
@@ -110,13 +121,67 @@ pub trait FieldBufferMut<'a>: FieldBuffer<'a> +  AsMut<[JsonField<'a,'a>]> {
 /// FieldBufferMut is automatically implemented for all types that implement FieldBuffer + AsMut<[JsonField<'data,'data>]>
 impl <'a,T: FieldBuffer<'a> + AsMut<[JsonField<'a,'a>]>> FieldBufferMut<'a> for T {}
 
+pub trait StringWrite: ErrorType {
+    fn write_string(&mut self, data: &str) -> (usize,Result<(), <Self as ErrorType>::Error>);
+}
+
+impl<T: Write> StringWrite for T {
+    fn write_string(&mut self, mut data: &str) -> (usize,Result<(), <Self as ErrorType>::Error>) {
+        let mut written = 0_usize;
+        loop {
+            if data.is_empty() {
+                return (written,Ok(()));
+            }
+            let n = match self.write(data.as_bytes()) {
+                Ok(0) => panic!(),
+                Err(e) => return (written, Err(e)),
+                Ok(n) => n,
+            };
+            written += n;
+            data = data.split_at(n).1
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+#[cfg(feature = "alloc")]
+use alloc::string::String;
+
+#[cfg(feature = "alloc")]
+struct StringWrapper<T: ?Sized> {
+    inner: T
+}
+
+#[cfg(feature = "alloc")]
+impl<T: AsMut<String>> ErrorType for StringWrapper<T> {
+    type Error = Infallible;
+}
+
+#[cfg(feature = "alloc")]
+impl<T: AsMut<String>> StringWrite for StringWrapper<T> {
+    fn write_string(&mut self, data: &str) -> (usize,Result<(), <Self as ErrorType>::Error>) {
+        self.inner.as_mut().push_str(data);
+        (data.len(), Ok(()))
+    }
+}
+
+// TODO: alloc almost done
+// impl <'a,T: FieldBuffer<'a>> ToString for JsonObject<T> {
+//     fn to_string(&self) -> String {
+//         self.serialize_into(output)
+//     }
+// }
+
+
 impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
 
+    /// wrap a collection of fields into a JsonObject and considers none of the fields to be initialized
     pub const fn wrap(fields: T) -> Self {
         JsonObject { fields, num_fields: 0 }
     }
 
-    /// wrap a collection of fields into a JsonObject and considers them to be initialized
+    /// wrap a collection of fields into a JsonObject and considers all of the fields to be initialized
     pub fn wrap_init(fields: T) -> Self {
         let num_fields = fields.as_ref().len();
         JsonObject { fields, num_fields }
