@@ -1,15 +1,14 @@
 use std::io::stdout;
-use embedded_io_adapters::std::FromStd;
-use lil_json::{FieldBuffer, JsonField, JsonValue};
+use lil_json::FieldBuffer;
 
 fn main() {
     [
-        JsonField::new("some_number", JsonValue::Number(12345)),
-        JsonField::new("some_string", JsonValue::String("hello world!")),
-        JsonField::new("some_boolean", JsonValue::Boolean(true)),
+        ("some_number", 12345).into(),
+        ("some_string", "hello world!").into(),
+        ("some_boolean", true).into()
     ]
     .as_json_object()
-    .serialize_into(FromStd::new(stdout()))
+    .serialize_std(stdout())
     .unwrap();
 }
 

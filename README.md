@@ -5,17 +5,16 @@ lil `#![no_std]` Rust crate to parse & serialize JavaScript Object Notation (JSO
 JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html). Serialize a JSON object to stdout with a one-liner!
 ```rust
 use std::io::stdout;
-use embedded_io_adapters::std::FromStd;
-use lil_json::{FieldBuffer, JsonField, JsonValue};
+use lil_json::FieldBuffer;
 
 fn main() {
     [
-        JsonField::new("some_number", JsonValue::Number(12345)),
-        JsonField::new("some_string", JsonValue::String("hello world!")),
-        JsonField::new("some_boolean", JsonValue::Boolean(true)),
+        ("some_number", 12345).into(),
+        ("some_string", "hello world!").into(),
+        ("some_boolean", true).into()
     ]
     .as_json_object()
-    .serialize(FromStd::new(stdout()))
+    .serialize_std(stdout())
     .unwrap();
 }
 
@@ -26,7 +25,7 @@ the following types are currently supported:
 * objects (currently limited to non-nested objects)
 * string (currently limited to ascii)
 * boolean
-* number
+* number (currently limited to integers)
 
 the following types are not currently supported:
 * arrays

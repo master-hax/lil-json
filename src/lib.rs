@@ -14,6 +14,24 @@ pub enum JsonValue<'a> {
     Number(i64),
 }
 
+impl<'a> From<i64> for JsonValue<'a> {
+    fn from(n: i64) -> Self {
+        Self::Number(n)
+    }
+}
+
+impl<'a> From<bool> for JsonValue<'a> {
+    fn from(b: bool) -> Self {
+        Self::Boolean(b)
+    }
+}
+
+impl<'a> From<&'a str> for JsonValue<'a> {
+    fn from(s: &'a str) -> Self {
+        Self::String(s)
+    }
+}
+
 /// a field within a JSON object
 #[derive(Debug,PartialEq,Eq,Clone,Copy)]
 pub struct JsonField<'a,'b> {
@@ -25,6 +43,11 @@ impl <'a,'b> JsonField<'a,'b> {
     /// create a new JSON object field with the given key & value
     pub const fn new(key: &'a str, value: JsonValue<'b>) -> Self {
         JsonField { key, value }
+    }
+
+    /// convenience helper to get the json field as a (key,value) tuple
+    pub const fn from_tuple(tuple: (&'a str, JsonValue<'b>)) -> Self {
+        Self::new(tuple.0, tuple.1)
     }
 
     /// convenience helper to get the json field as a (key,value) tuple
@@ -77,12 +100,20 @@ pub enum JsonParseFailure {
     InvalidStringField,
     /// an invalid JSON number was encountered
     InvalidNumericField,
+    /// a valid JSON number was encountered but we failed to interpret it
+    NumberParseError,
     /// an invalid JSON boolean was encountered
     InvalidBooleanField,
 }
 
 /// a default JSON field with static lifetime
 pub const EMPTY_FIELD: JsonField<'static,'static> = JsonField{ key: "", value: JsonValue::Number(0)};
+
+impl <'a,'b,V: Into<JsonValue<'b>>> From<(&'a str, V)> for JsonField<'a,'b> {
+    fn from(tuple: (&'a str, V)) -> Self {
+        Self::new(tuple.0, tuple.1.into())
+    }
+}
 
 impl <'a,'b> Default for JsonField<'a,'b> {
     fn default() -> Self {
@@ -165,7 +196,6 @@ impl<T: Write> StringWrite for T {
 //     }
 // }
 
-
 impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
 
     /// wrap a collection of fields into a JsonObject and considers none of the fields to be initialized
@@ -215,9 +245,9 @@ impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
     }
 }
 
-impl<'a,T: FieldBuffer<'a>> From<T> for JsonObject<T> {
-    fn from(field_buffer: T) -> Self {
-        JsonObject::wrap_init(field_buffer)
+impl <'a,T: FieldBuffer<'a>> From<T> for JsonObject<T> {
+    fn from(t: T) -> Self {
+        Self::wrap_init(t)
     }
 }
 
@@ -382,15 +412,36 @@ pub fn parse_json_object<'data,'field_buffer>(data: &'data [u8], field_buffer: &
                 }
                 field_buffer[current_field_index] = JsonField::new(string_key, JsonValue::Boolean(expect_true));
                 current_field_index += 1;
-            } else if (data[current_data_index] >= b'0' && data[current_data_index] < b'9') || data[current_data_index] == b'-' {
+            } else if data[current_data_index] == b'-' {
+                // negative number
+                let minus_sign_numeric_start_index = current_data_index;
+                current_data_index += 1;
+                skip_json_numeric(&mut current_data_index, data)?;
+                let minus_sign_numeric_end = current_data_index;
+                if minus_sign_numeric_end - minus_sign_numeric_start_index == 1 {
+                    // no digits found
+                    return Err(JsonParseFailure::InvalidNumericField);
+                }
+                let numeric_string = core::str::from_utf8(&data[minus_sign_numeric_start_index..minus_sign_numeric_end]).expect("skipped negative number digit(s)");
+                let numeric_value: i64 = match numeric_string.parse() {
+                    Ok(i) => i,
+                    Err(_parse_int_error) => return Err(JsonParseFailure::NumberParseError),
+                };
+                if current_field_index >= field_buffer.len() {
+                    return Err(JsonParseFailure::TooManyFields);
+                }
+                field_buffer[current_field_index] = JsonField::new(string_key, JsonValue::Number(numeric_value));
+                current_field_index += 1;
+            } else if data[current_data_index] >= b'0' && data[current_data_index] < b'9' {
+                // positive number
                 let numeric_start_index = current_data_index;
                 current_data_index += 1;
                 skip_json_numeric(&mut current_data_index, data)?;
                 let numeric_after_index = current_data_index;
-                let numeric_string = core::str::from_utf8(&data[numeric_start_index..numeric_after_index]).expect("skipped numeric digits");
+                let numeric_string = core::str::from_utf8(&data[numeric_start_index..numeric_after_index]).expect("skipped positive number digit(s)");
                 let numeric_value: i64 = match numeric_string.parse() {
                     Ok(i) => i,
-                    Err(_) => return Err(JsonParseFailure::InvalidNumericField),
+                    Err(_parse_int_error) => return Err(JsonParseFailure::NumberParseError),
                 };
                 if current_field_index >= field_buffer.len() {
                     return Err(JsonParseFailure::TooManyFields);
@@ -608,6 +659,14 @@ mod tests {
         assert_eq!(JsonField { key: "name", value: JsonValue::String("John Doe")}, test_fields[1]);
         assert_eq!(JsonField { key: "iat", value: JsonValue::Number(1516239022)}, test_fields[2]);
         assert_eq!(JsonField { key: "something", value: JsonValue::Boolean(false)}, test_fields[3]);
+    }
+
+    #[test]
+    fn test_parse_object_failure_invalid_number_minus() {
+        match ArrayJsonObject::<50>::new_parsed(br#"{"": -}"#) {
+            Err(JsonParseFailure::InvalidNumericField) => {},
+            _ => panic!("should be invalid numeric field")
+        }
     }
 
     #[test]
