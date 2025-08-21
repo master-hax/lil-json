@@ -40,7 +40,7 @@ impl <'a,'b> JsonField<'a,'b> {
     }
 }
 
-/// a JSON Object (rfc8259) that wraps a mutable or immutable buffer of object fields. The easiest way to use it is through the ArrayJsonObject type alias, however you can use JsonObject directly to wrap your own buffer (maybe a Vec)
+/// a JSON Object (rfc8259) that wraps a mutable or immutable buffer of object fields. The easiest way to use it is through the ArrayJsonObject type alias, however you can use JsonObject directly to wrap your own buffer like a heap allocated Vec
 #[derive(Debug)]
 pub struct JsonObject<Fields> {
     fields: Fields,
@@ -111,6 +111,14 @@ impl <'a,T: FieldBuffer<'a> + AsMut<[JsonField<'a,'a>]>> FieldBufferMut<'a> for 
 impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
     pub const fn wrap(fields: T, num_fields: usize) -> Self {
         JsonObject { fields, num_fields }
+    }
+
+    pub const fn len(&self) -> usize {
+        self.num_fields
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.fields.as_ref().len()
     }
 
     pub fn fields(&self) -> &[JsonField<'a,'a>] {
