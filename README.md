@@ -55,3 +55,5 @@ TODO:
 - [ ] support arrays
 - [ ] support parsing arbitrary types
 - [ ] support unicode strings
+- [ ] support buffered serialization
+- [ ] support embedded-io-async?
