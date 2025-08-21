@@ -15,7 +15,7 @@ fn main() {
 
     // create a buffer & serialize the object into it
     let mut buffer = [0_u8; 128];
-    let serialized_end = original_object.serialize_blocking(buffer.as_mut_slice()).unwrap();
+    let serialized_end = original_object.serialize(buffer.as_mut_slice()).unwrap();
     let serialized = buffer.split_at(serialized_end).0;
     assert_eq!(b"{\"some_number\":12345,\"some_string\":\"hello world!\",\"some_boolean\":true}", serialized);
 

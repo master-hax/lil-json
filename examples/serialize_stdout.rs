@@ -10,7 +10,7 @@ fn main() {
     json_object.push_field("some_number", JsonValue::Number(12345)).unwrap();
     json_object.push_field("some_string", JsonValue::String("hello world!")).unwrap();
     json_object.push_field("some_boolean", JsonValue::Boolean(true)).unwrap();
-    json_object.serialize_blocking(&mut stdout).unwrap();
+    json_object.serialize(&mut stdout).unwrap();
     stdout.flush().unwrap();
 }
 
