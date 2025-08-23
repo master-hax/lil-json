@@ -29,6 +29,7 @@ the following types are currently supported:
 * objects (currently limited to non-nested objects)
 * string (currently limited to ascii-)
 * boolean
+* null
 * number (currently limited to integers)
 
 the following types are not currently supported:
@@ -37,7 +38,7 @@ the following types are not currently supported:
 * nested types
 
 TODO:
-- [ ] support null type
+- [x] support null type
 - [ ] alloc features
 - [ ] expose serialization methods for terminal types
 - [ ] support arrays
