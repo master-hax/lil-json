@@ -12,17 +12,25 @@ pub enum JsonValue<'a> {
     Boolean(bool),
     /// a JSON number
     Number(i64),
+    /// a JSON null value
+    Null,
 }
 
-impl<'a> From<i64> for JsonValue<'a> {
+impl From<i64> for JsonValue<'static> {
     fn from(n: i64) -> Self {
         Self::Number(n)
     }
 }
 
-impl<'a> From<bool> for JsonValue<'a> {
+impl From<bool> for JsonValue<'static> {
     fn from(b: bool) -> Self {
         Self::Boolean(b)
+    }
+}
+
+impl From<()> for JsonValue<'static> {
+    fn from(_: ()) -> Self {
+        Self::Null
     }
 }
 
@@ -104,6 +112,8 @@ pub enum JsonParseFailure {
     NumberParseError,
     /// an invalid JSON boolean was encountered
     InvalidBooleanField,
+    /// an invalid JSON null was encountered
+    InvalidNullField,
 }
 
 /// a default JSON field with static lifetime
@@ -404,9 +414,16 @@ pub fn parse_json_object<'data,'field_buffer>(data: &'data [u8], field_buffer: &
                 }
                 field_buffer[current_field_index] = JsonField::new(string_key, JsonValue::String(string_value));
                 current_field_index += 1;
+            } else if data[current_data_index] == b'n' {
+                skip_literal(&mut current_data_index, data, "null", JsonParseFailure::InvalidBooleanField)?;
+                if current_field_index >= field_buffer.len() {
+                    return Err(JsonParseFailure::TooManyFields);
+                }
+                field_buffer[current_field_index] = JsonField::new(string_key, JsonValue::Null);
+                current_field_index += 1;
             } else if data[current_data_index] == b't' || data[current_data_index] == b'f' {
                 let expect_true = data[current_data_index] == b't';
-                skip_json_boolean(&mut current_data_index, data, expect_true)?;
+                skip_literal(&mut current_data_index, data, if expect_true { "true" } else { "false"}, JsonParseFailure::InvalidBooleanField)?;
                 if current_field_index >= field_buffer.len() {
                     return Err(JsonParseFailure::TooManyFields);
                 }
@@ -416,7 +433,7 @@ pub fn parse_json_object<'data,'field_buffer>(data: &'data [u8], field_buffer: &
                 // negative number
                 let minus_sign_numeric_start_index = current_data_index;
                 current_data_index += 1;
-                skip_json_numeric(&mut current_data_index, data)?;
+                skip_numeric(&mut current_data_index, data)?;
                 let minus_sign_numeric_end = current_data_index;
                 if minus_sign_numeric_end - minus_sign_numeric_start_index == 1 {
                     // no digits found
@@ -436,7 +453,7 @@ pub fn parse_json_object<'data,'field_buffer>(data: &'data [u8], field_buffer: &
                 // positive number
                 let numeric_start_index = current_data_index;
                 current_data_index += 1;
-                skip_json_numeric(&mut current_data_index, data)?;
+                skip_numeric(&mut current_data_index, data)?;
                 let numeric_after_index = current_data_index;
                 let numeric_string = core::str::from_utf8(&data[numeric_start_index..numeric_after_index]).expect("skipped positive number digit(s)");
                 let numeric_value: i64 = match numeric_string.parse() {
@@ -473,7 +490,7 @@ fn skip_json_string(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailur
     Err(JsonParseFailure::Incomplete)
 }
 
-fn skip_json_numeric(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure> {
+fn skip_numeric(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure> {
     while *index < data.len() && data[*index] <= b'9' && data[*index] >= b'0' {
         *index += 1;
     }
@@ -486,15 +503,14 @@ fn skip_json_numeric(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailu
     }
 }
 
-fn skip_json_boolean(index: &mut usize, data: &[u8], value: bool) -> Result<(),JsonParseFailure> {
+fn skip_literal(index: &mut usize, data: &[u8], target: &str, field_error_type: JsonParseFailure) -> Result<(),JsonParseFailure> {
     let start = *index;
-    let target = if value { "true" } else { "false" };
     while (*index - start) < target.len() {
         if *index >= data.len() {
             return Err(JsonParseFailure::Incomplete)
         }
         if data[*index] != target.as_bytes()[*index-start] {
-            return Err(JsonParseFailure::InvalidBooleanField);
+            return Err(field_error_type);
         }
         *index += 1;
     }
@@ -535,14 +551,16 @@ Output: Write,
             JsonValue::String(s) => {
                 write_escaped_json_string(&mut output, &mut ret , s)?;
             },
-            JsonValue::Boolean(false) => {
-                tracked_write(&mut output,&mut ret , "false")?;
-            },
-            JsonValue::Boolean(true) => {
+            JsonValue::Boolean(b) => if b {
                 tracked_write(&mut output,&mut ret , "true")?;
+            } else {
+                tracked_write(&mut output,&mut ret , "false")?;
             },
             JsonValue::Number(n) => {
                 tracked_write(&mut output,&mut ret , &base10::i64(n))?;
+            },
+            JsonValue::Null => {
+                tracked_write(&mut output,&mut ret , "null")?;
             },
         }
     }
@@ -637,8 +655,9 @@ mod tests {
         test_map.push_field("name", JsonValue::String("John Doe")).unwrap();
         test_map.push_field("iat", JsonValue::Number(1516239022)).unwrap();
         test_map.push_field("something", JsonValue::Boolean(false)).unwrap();
+        test_map.push_field("null_thing", JsonValue::Null).unwrap();
         let n = test_map.serialize(buffer.as_mut_slice()).unwrap();
-        assert_eq!(br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false}"#, buffer.split_at(n).0)
+        assert_eq!(br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false,"null_thing":null}"#, buffer.split_at(n).0)
     }
 
     #[test]
@@ -650,22 +669,30 @@ mod tests {
 
     #[test]
     fn test_parse_object_success_simple() {
-        let data = br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false}"#;
+        let data = br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false,"null_thing":null}"#;
         let (data_end,json_object) = ArrayJsonObject::<50>::new_parsed(data).unwrap();
         assert_eq!(data_end, data.len());
         let test_fields = json_object.fields();
-        assert_eq!(4, test_fields.len());
+        assert_eq!(5, test_fields.len());
         assert_eq!(JsonField { key: "sub", value: JsonValue::String("1234567890")}, test_fields[0]);
         assert_eq!(JsonField { key: "name", value: JsonValue::String("John Doe")}, test_fields[1]);
         assert_eq!(JsonField { key: "iat", value: JsonValue::Number(1516239022)}, test_fields[2]);
         assert_eq!(JsonField { key: "something", value: JsonValue::Boolean(false)}, test_fields[3]);
+        assert_eq!(JsonField { key: "null_thing", value: JsonValue::Null}, test_fields[4]);
+    }
+
+    #[test]
+    fn test_parse_object_success_ignore_trailing_whitespace() {
+        let data = br#"{}    "#; // add 4 spaces to the end
+        let (data_end,_) = ArrayJsonObject::<0>::new_parsed(data).unwrap();
+        assert_eq!(data_end, data.len() - 4);
     }
 
     #[test]
     fn test_parse_object_failure_invalid_number_minus() {
         match ArrayJsonObject::<50>::new_parsed(br#"{"": -}"#) {
             Err(JsonParseFailure::InvalidNumericField) => {},
-            _ => panic!("should be invalid numeric field")
+            other => panic!("{:?}", other)
         }
     }
 
@@ -673,7 +700,7 @@ mod tests {
     fn test_parse_object_failure_incomplete_simple() {
         match ArrayJsonObject::<50>::new_parsed(b"{") {
             Err(JsonParseFailure::Incomplete) => {},
-            _ => panic!("incomplete json")
+            other => panic!("{:?}", other)
         }
     }
 
