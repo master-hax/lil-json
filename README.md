@@ -34,7 +34,6 @@ the following types are currently supported:
 
 the following types are not currently supported:
 * arrays
-* null
 * nested types
 
 TODO:
