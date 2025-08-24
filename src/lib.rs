@@ -550,7 +550,7 @@ impl<'a> StringBuffer<'a> {
                 Ok(())
             },
             #[cfg(feature = "alloc")]
-            StringBuffer::Infinite(current_string, all_strings) => {
+            StringBuffer::Infinite(current_string, _frozen_vec) => {
                 current_string.push_str(string);
                 Ok(())
             },
@@ -799,28 +799,14 @@ fn write_escaped_json_string<T: StringWrite>(output: &mut T, counter: &mut usize
 mod alloc {
 
     extern crate alloc as alloclib;
-    use core::{convert::Infallible, fmt::{Arguments, Formatter}, marker::PhantomData};
+    
 
     use alloclib::string::String;
     use alloclib::vec::Vec;
 
     pub use elsa::FrozenVec;
 
-    use crate::{parse_json_object, FieldBufferMut, JsonField, JsonObject, JsonParseFailure, ResultBuffer, StringWrite};
-
-    // struct StringWrapper {
-    //     inner: String,
-    // }
-
-
-    // impl StringWrite for StringWrapper {
-    //     type StringWriteFailure = core::convert::Infallible;
-    //     fn write_string(&mut self, data: &str) -> Result<(),(usize,Self::StringWriteFailure)> {
-    //         let n = data.len();
-    //         self.inner.push_str(data);
-    //         Ok(())
-    //     }
-    // }
+    use crate::{parse_json_object, FieldBufferMut, JsonField, JsonObject, JsonParseFailure, ResultBuffer};
 
     impl <'a, T: FieldBufferMut<'a>> JsonObject<T> {
         /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject while allocating space as needed for storing escaped strings
@@ -852,14 +838,18 @@ mod alloc {
             Ok(data_end)
         }
 
-        // /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject while allocating space as needed for storing parsed fields & escaped strings
-        // /// returns num bytes consumed on success
-        // pub fn parse_alloc(&mut self, data: &'a [u8]) -> Result<usize,JsonParseFailure> {
-        //     let (data_end, parsed_fields) = parse_json_object(data, ResultBuffer::Growable(0, self.fields.as_mut()))?;
-        //     let new_num_fields = parsed_fields;
-        //     self.num_fields = new_num_fields;
-        //     Ok(data_end)
-        // }
+        /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject while allocating space as needed for storing parsed fields & escaped strings
+        /// returns num bytes consumed on success
+        pub fn parse_alloc(&mut self, data: &'a [u8], escape_buffer: &'a FrozenVec<String>) -> Result<usize,JsonParseFailure> {
+            let (data_end, parsed_fields) = parse_json_object(
+                data,
+                ResultBuffer::Growable(0, self.fields.as_mut()),
+                crate::StringBuffer::Infinite(String::new(), escape_buffer),
+            )?;
+            let new_num_fields = parsed_fields;
+            self.num_fields = new_num_fields;
+            Ok(data_end)
+        }
     }
 
     // impl<V> JsonBuffer<V> for Vec<V> {}
