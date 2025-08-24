@@ -1,5 +1,4 @@
 #![no_std]
-#![forbid(unsafe_code)]
 
 use core::fmt::{Debug, Display, Formatter};
 use embedded_io::{Write};
@@ -12,8 +11,8 @@ trait StringWrite {
     fn write_string(&mut self, data: &str) -> Result<(),(usize,Self::StringWriteFailure)>;
 }
 
-impl<X: Write> StringWrite for X {
-    type StringWriteFailure = X::Error;
+impl<T: Write> StringWrite for T {
+    type StringWriteFailure = T::Error;
     fn write_string(&mut self, mut data: &str) -> Result<(),(usize,Self::StringWriteFailure)> {
         let mut written = 0_usize;
         loop {
@@ -31,29 +30,29 @@ impl<X: Write> StringWrite for X {
     }
 }
 
-    struct FormatWrapper<T: ?Sized> {
-        inner: T,
-    }
+struct FormatWrapper<T: ?Sized> {
+    inner: T,
+}
 
-    impl<T> FormatWrapper<T> {
-        fn new(inner: T) -> Self {
-            FormatWrapper { inner }
+impl<T> FormatWrapper<T> {
+    fn new(inner: T) -> Self {
+        FormatWrapper { inner }
+    }
+}
+
+impl<'a> StringWrite for FormatWrapper<&mut Formatter<'a>> {
+    type StringWriteFailure = core::fmt::Error;
+    fn write_string(&mut self, data: &str) -> Result<(),(usize,Self::StringWriteFailure)> {
+        match self.inner.write_str(data) {
+            Ok(()) => {
+                Ok(())
+            },
+            Err(e) => {
+                Err((0,e))
+            },
         }
     }
-
-    impl<'a> StringWrite for FormatWrapper<&mut Formatter<'a>> {
-        type StringWriteFailure = core::fmt::Error;
-        fn write_string(&mut self, data: &str) -> Result<(),(usize,Self::StringWriteFailure)> {
-            match self.inner.write_str(data) {
-                Ok(()) => {
-                    Ok(())
-                },
-                Err(e) => {
-                    Err((0,e))
-                },
-            }
-        }
-    }
+}
 
 /// trait for an optionally mutable collection of JSON array values
 pub trait ValueBuffer<'a>: AsRef<[JsonValue<'a>]> {
@@ -152,6 +151,10 @@ pub enum JsonValue<'a> {
     Number(i64),
     /// a JSON null value
     Null,
+}
+
+impl<'a> Default for JsonValue<'a> {
+    fn default() -> Self { JsonValue::Null }
 }
 
 impl From<i64> for JsonValue<'static> {
@@ -288,12 +291,70 @@ impl <'a,T: ValueBuffer<'a>> JsonArray<T> {
         self.values.as_ref().split_at(self.num_values).0
     }
 
-    pub fn serialize<Output: Write>(&self, _output: Output) -> Result<usize,Output::Error> {
-        todo!()
-        // serialize_json_object(output, self.values.as_ref())
+    pub fn serialize<Output: Write>(&self, mut output: Output) -> Result<usize,Output::Error> {
+        serialize_json_array_internal(&mut output, self.values().as_ref())
     }
 
 }
+
+impl <'a,T: ValueBuffer<'a>> Display for JsonArray<T> {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
+        match serialize_json_array_internal(
+            &mut FormatWrapper::new(fmt),
+            self.values.as_ref(),
+        ) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e)
+        }
+    }
+}
+
+/// ArrayJsonObject is a type alias for a JsonObject that wraps an array. It has extra functionality when compared to any other type of JsonObject.
+pub type ArrayJsonArray<'a,const N: usize> = JsonArray<[JsonValue<'a>; N]>;
+
+impl<'a,const N: usize> ArrayJsonArray<'a,N> {
+    
+    /// convenience method to initialize a new array & call JsonObject::wrap on it
+    pub const fn new() -> Self {
+        JsonArray::wrap([JsonValue::Null; N])
+    }
+
+    /// convenience method to automatically create an ArrayJsonObject if object parsing is successful
+    // pub fn new_parsed(data: &'a [u8], escape_buffer: &'a mut [u8]) -> Result<(usize,Self),JsonParseFailure> {
+    //     let mut ret = Self::new();
+    //     let data_end = ret.parse(data, escape_buffer)?;
+    //     Ok((data_end,ret))
+    // }
+
+    /// similar to JsonObject::push but supports const contexts & only returns a reference
+    pub const fn push_const(&mut self, value: JsonValue<'a>) -> Result<(),()> {
+        if self.num_values == N {
+            return Err(());
+        }
+        self.values[self.num_values] = value;
+        self.num_values += 1;
+        Ok(())
+    }
+
+    /// similar to JsonObject::pop but supports const contexts
+    pub const fn pop_const(&mut self) -> Option<&JsonValue<'a>> {
+        match self.values_const().split_last() {
+            None => return None,
+            Some((split,_remaining)) => return Some(split),
+        }
+    }
+
+    /// same as JsonObject::fields but supports const contexts
+    pub const fn values_const(&self) -> &[JsonValue<'a>] {
+        self.values.split_at(self.num_values).0
+    }
+
+    /// same as JsonObject::fields_mut but supports const contexts
+    pub const fn values_mut_const(&mut self) -> &mut [JsonValue<'a>] {
+        self.values.split_at_mut(self.num_values).0
+    }
+}
+
 
 /// JsonObject represents an RFC 8259 JSON Object. Tt wraps a mutable or immutable buffer of object fields. The easiest way to use it is through the ArrayJsonObject type alias, however you can use JsonObject directly to wrap your own buffer like a heap allocated Vec
 #[derive(Debug,Clone,Copy)]
@@ -562,7 +623,8 @@ impl<'a> StringBuffer<'a> {
                 let (ret, remaining) = core::mem::take(slice).split_at_mut(*position);
                 *slice = remaining;
                 *position = 0;
-                core::str::from_utf8(ret).unwrap()
+                // safety: this data was written from &str
+                unsafe { core::str::from_utf8_unchecked(ret) }
             },
             #[cfg(feature = "alloc")]
             StringBuffer::Infinite(current_string, frozen_vec) => {
@@ -767,6 +829,40 @@ fn serialize_json_object_internal<'data, Output: StringWrite>(
         }
     }
     tracked_write(output, &mut ret , "}")?;
+    Ok(ret)
+}
+
+fn serialize_json_array_internal<'data, Output: StringWrite>(
+    output: &mut Output,
+    fields: &[JsonValue<'data>],
+) -> Result<usize, Output::StringWriteFailure> {
+    let mut ret = 0;
+    tracked_write(output,&mut ret , "[")?;
+    let mut value_needs_comma = false;
+    for value in fields.as_ref().iter() {
+        if value_needs_comma {
+            tracked_write(output,&mut ret , ",")?;
+        } else {
+            value_needs_comma = true;
+        }
+        match *value {
+            JsonValue::Boolean(b) => if b {
+                tracked_write(output,&mut ret , "true")?;
+            } else {
+                tracked_write(output,&mut ret , "false")?;
+            },
+            JsonValue::Null => {
+                tracked_write(output,&mut ret , "null")?;
+            },
+            JsonValue::Number(n) => {
+                tracked_write(output,&mut ret , base10::i64(n).as_str())?;
+            },
+            JsonValue::String(s) => {
+                write_escaped_json_string(output, &mut ret , s)?;
+            },
+        }
+    }
+    tracked_write(output, &mut ret , "]")?;
     Ok(ret)
 }
 
@@ -1068,10 +1164,18 @@ mod test_core {
     }
 
     #[test]
+    fn test_serialize_array_empty() {
+        let mut buffer = [0_u8; 2];
+        let test_array = ArrayJsonArray::<0>::new();
+        let n = test_array.serialize(buffer.as_mut_slice()).unwrap();
+        assert_eq!(b"[]", buffer.split_at(n).0)
+    }
+
+    #[test]
     fn test_serialize_object_empty() {
-        let mut buffer = [0_u8; 1000];
-        let test_map = ArrayJsonObject::<50>::new();
-        let n = test_map.serialize(buffer.as_mut_slice()).unwrap();
+        let mut buffer = [0_u8; 2];
+        let test_object = ArrayJsonObject::<0>::new();
+        let n = test_object.serialize(buffer.as_mut_slice()).unwrap();
         assert_eq!(b"{}", buffer.split_at(n).0)
     }
 
