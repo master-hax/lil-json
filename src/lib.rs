@@ -7,7 +7,7 @@ use numtoa::base10;
 #[cfg(feature = "alloc")]
 use elsa::FrozenVec;
 
-pub trait StringWrite {
+trait StringWrite {
     type StringWriteFailure: Debug;
     fn write_string(&mut self, data: &str) -> Result<(),(usize,Self::StringWriteFailure)>;
 }
@@ -223,7 +223,7 @@ impl<'a,T: FieldBuffer<'a>> PartialEq for JsonObject<T> {
 }
 
 /// PartialEq for JsonObject is reflexive
-// impl<'a,T: FieldBuffer<'a>> Eq for JsonObject<T> {}
+impl<'a,T: FieldBuffer<'a>> Eq for JsonObject<T> {}
 
 /// a default JSON field with static lifetime
 pub const EMPTY_FIELD: JsonField<'static,'static> = JsonField{ key: "", value: JsonValue::Number(0)};
@@ -344,14 +344,17 @@ impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
     }
 
     /// attempt to serialize this JsonObject into the provided output, returns the number of bytes written on success
-    pub fn serialize<Output: StringWrite>(&self, mut output: Output) -> Result<usize,Output::StringWriteFailure> {
-        serialize_json_object(&mut output, self.fields().as_ref())
+    pub fn serialize<Output: Write>(&self, mut output: Output) -> Result<usize,Output::Error> {
+        serialize_json_object_internal(&mut output, self.fields().as_ref())
     }
 }
 
 impl <'a,T: FieldBuffer<'a>> Display for JsonObject<T> {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
-        match self.serialize(FormatWrapper::new(fmt)) {
+        match serialize_json_object_internal(
+            &mut FormatWrapper::new(fmt),
+            self.fields.as_ref(),
+        ) {
             Ok(_) => Ok(()),
             Err(e) => Err(e)
         }
@@ -723,44 +726,15 @@ fn skip_whitespace(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure
     }
 }
 
-pub fn serialize_json_object2<'data, Output: StringWrite>(
+/// the core function that powers serialization in the JsonObject API. It attempts to serialize the provided fields as a JSON object into the provided output, & returns the number of bytes written on success.
+pub fn serialize_json_object<'data, Output: Write>(
     output: &mut Output,
     fields: &[JsonField<'data,'data>],
-) -> Result<usize, Output::StringWriteFailure> {
-    let mut ret = 0;
-    tracked_write(output,&mut ret , "{")?;
-    let mut field_needs_comma = false;
-    for field in fields.as_ref().iter() {
-        if field_needs_comma {
-            tracked_write(output,&mut ret , ",")?;
-        } else {
-            field_needs_comma = true;
-        }
-        write_escaped_json_string(output, &mut ret , field.key)?;
-        tracked_write(output, &mut ret , ":")?;
-        match field.value {
-            JsonValue::Boolean(b) => if b {
-                tracked_write(output,&mut ret , "true")?;
-            } else {
-                tracked_write(output,&mut ret , "false")?;
-            },
-            JsonValue::Null => {
-                tracked_write(output,&mut ret , "null")?;
-            },
-            JsonValue::Number(n) => {
-                tracked_write(output,&mut ret , base10::i64(n).as_str())?;
-            },
-            JsonValue::String(s) => {
-                write_escaped_json_string(output, &mut ret , s)?;
-            },
-        }
-    }
-    tracked_write(output, &mut ret , "}")?;
-    Ok(ret)
+) -> Result<usize, Output::Error> {
+    serialize_json_object_internal(output, fields)
 }
 
-/// the core function that powers serialization in the JsonObject API. It attempts to serialize the provided fields as a JSON object into the provided output, & returns the number of bytes written on success.
-pub fn serialize_json_object<'data, Output: StringWrite>(
+fn serialize_json_object_internal<'data, Output: StringWrite>(
     output: &mut Output,
     fields: &[JsonField<'data,'data>],
 ) -> Result<usize, Output::StringWriteFailure> {
