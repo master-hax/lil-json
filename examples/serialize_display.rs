@@ -1,4 +1,3 @@
-use std::io::stdout;
 use lil_json::{ArrayJsonObject, JsonField, JsonValue};
 
 fn main() {
@@ -12,7 +11,7 @@ fn main() {
     json_object.push(string_field).unwrap();
     json_object.push(boolean_field).unwrap();
 
-    json_object.serialize_std(stdout()).unwrap();
+    println!("{}", json_object);
 }
 
 // output: {"some_number":12345,"some_string":"hello world!","some_boolean":true}
