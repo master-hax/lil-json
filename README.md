@@ -38,9 +38,9 @@ the following types are not currently supported:
 
 TODO:
 - [x] support null type
-- [ ] alloc features
-- [ ] expose serialization methods for terminal types
-- [ ] support arrays
+- [x] alloc features
+- [x] expose serialization methods for terminal types
+- [x] support arrays
 - [ ] support parsing arbitrary types
 - [ ] support unicode strings
 - [ ] support buffered serialization
