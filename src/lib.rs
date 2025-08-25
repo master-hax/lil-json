@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(doc_cfg)]
 
 use core::fmt::{Debug, Display, Formatter};
 use embedded_io::{Write};
@@ -243,7 +244,7 @@ impl <'a,'b> Default for JsonField<'a,'b> {
     }
 }
 
-/// JsonObject represents an RFC 8259 JSON Array. Tt wraps a mutable or immutable buffer of JSON values.
+/// JsonObject represents an RFC 8259 JSON Array. It wraps a mutable or immutable buffer of JSON values.  The easiest way to use it is through the ArrayJsonArray type alias, however you can use JsonArray directly to wrap your own buffer like a heap allocated Vec.
 #[derive(Debug,Clone,Copy)]
 pub struct JsonArray<Values> {
     values: Values,
@@ -356,7 +357,7 @@ impl<'a,const N: usize> ArrayJsonArray<'a,N> {
 }
 
 
-/// JsonObject represents an RFC 8259 JSON Object. Tt wraps a mutable or immutable buffer of object fields. The easiest way to use it is through the ArrayJsonObject type alias, however you can use JsonObject directly to wrap your own buffer like a heap allocated Vec
+/// JsonObject represents an RFC 8259 JSON Object. It wraps a mutable or immutable buffer of object fields. The easiest way to use it is through the ArrayJsonObject type alias, however you can use JsonObject directly to wrap your own buffer like a heap allocated Vec
 #[derive(Debug,Clone,Copy)]
 pub struct JsonObject<Fields> {
     fields: Fields,
@@ -404,7 +405,7 @@ impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
         self.fields.as_ref().split_at(self.num_fields).0
     }
 
-    /// attempt to serialize this JsonObject into the provided output, returns the number of bytes written on success
+    /// attempt to serialize this JsonObject into the provided output & returns the number of bytes written on success
     pub fn serialize<Output: Write>(&self, mut output: Output) -> Result<usize,Output::Error> {
         serialize_json_object_internal(&mut output, self.fields().as_ref())
     }
@@ -537,15 +538,20 @@ impl<'a,const N: usize> ArrayJsonObject<'a,N> {
 
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", doc))]
+#[doc(cfg(feature = "alloc"))]
 extern crate alloc as alloclib;
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", doc))]
+#[doc(cfg(feature = "alloc"))]
 use alloclib::{string::String, vec::Vec};
 
 /// a buffer that T can be written to
 pub enum ResultBuffer<'a,T> {
+    /// a finite buffer of T
     Finite(usize, &'a mut [T]),
-    #[cfg(feature = "alloc")]
+    /// an infinite buffer of T
+    #[cfg(any(feature = "alloc", doc))]
+    #[doc(cfg(feature = "alloc"))]
     Growable(usize,&'a mut Vec<T>)
 }
 
@@ -563,6 +569,7 @@ impl<'a,T> ResultBuffer<'a,T> {
                 }
             },
             #[cfg(feature = "alloc")]
+            #[doc(cfg(feature = "alloc"))]
             ResultBuffer::Growable(position,vec) => {
                 if *position < vec.len() {
                     vec[*position] = thing;
@@ -581,6 +588,7 @@ impl<'a,T> ResultBuffer<'a,T> {
         match self {
             ResultBuffer::Finite(n, _) => n,
             #[cfg(feature = "alloc")]
+            #[doc(cfg(feature = "alloc"))]
             ResultBuffer::Growable(n, _) => n,
         }
     }
@@ -590,6 +598,7 @@ impl<'a,T> ResultBuffer<'a,T> {
 pub enum StringBuffer<'a> {
     Finite(usize, &'a mut [u8]),
     #[cfg(feature = "alloc")]
+    #[doc(cfg(feature = "alloc"))]
     Infinite(String,&'a FrozenVec<String>),
 }
 
@@ -611,6 +620,7 @@ impl<'a> StringBuffer<'a> {
                 Ok(())
             },
             #[cfg(feature = "alloc")]
+            #[doc(cfg(feature = "alloc"))]
             StringBuffer::Infinite(current_string, _frozen_vec) => {
                 current_string.push_str(string);
                 Ok(())
@@ -627,6 +637,7 @@ impl<'a> StringBuffer<'a> {
                 unsafe { core::str::from_utf8_unchecked(ret) }
             },
             #[cfg(feature = "alloc")]
+            #[doc(cfg(feature = "alloc"))]
             StringBuffer::Infinite(current_string, frozen_vec) => {
                 let completed_string = core::mem::replace(current_string, String::new());
                 let x = frozen_vec.push_get(completed_string);
@@ -788,6 +799,48 @@ fn skip_whitespace(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure
     }
 }
 
+/// the core function that powers serialization in the JsonArray API. It attempts to serialize the provided values as a JSON array into the provided output & returns the number of bytes written on success.
+fn serialize_json_array<'data, Output: Write>(
+    output: &mut Output,
+    fields: &[JsonValue<'data>],
+) -> Result<usize, Output::Error> {
+    serialize_json_array_internal(output, fields)
+}
+
+fn serialize_json_array_internal<'data, Output: StringWrite>(
+    output: &mut Output,
+    fields: &[JsonValue<'data>],
+) -> Result<usize, Output::StringWriteFailure> {
+    let mut ret = 0;
+    tracked_write(output,&mut ret , "[")?;
+    let mut value_needs_comma = false;
+    for value in fields.as_ref().iter() {
+        if value_needs_comma {
+            tracked_write(output,&mut ret , ",")?;
+        } else {
+            value_needs_comma = true;
+        }
+        match *value {
+            JsonValue::Boolean(b) => if b {
+                tracked_write(output,&mut ret , "true")?;
+            } else {
+                tracked_write(output,&mut ret , "false")?;
+            },
+            JsonValue::Null => {
+                tracked_write(output,&mut ret , "null")?;
+            },
+            JsonValue::Number(n) => {
+                tracked_write(output,&mut ret , base10::i64(n).as_str())?;
+            },
+            JsonValue::String(s) => {
+                write_escaped_json_string(output, &mut ret , s)?;
+            },
+        }
+    }
+    tracked_write(output, &mut ret , "]")?;
+    Ok(ret)
+}
+
 /// the core function that powers serialization in the JsonObject API. It attempts to serialize the provided fields as a JSON object into the provided output, & returns the number of bytes written on success.
 pub fn serialize_json_object<'data, Output: Write>(
     output: &mut Output,
@@ -832,40 +885,6 @@ fn serialize_json_object_internal<'data, Output: StringWrite>(
     Ok(ret)
 }
 
-fn serialize_json_array_internal<'data, Output: StringWrite>(
-    output: &mut Output,
-    fields: &[JsonValue<'data>],
-) -> Result<usize, Output::StringWriteFailure> {
-    let mut ret = 0;
-    tracked_write(output,&mut ret , "[")?;
-    let mut value_needs_comma = false;
-    for value in fields.as_ref().iter() {
-        if value_needs_comma {
-            tracked_write(output,&mut ret , ",")?;
-        } else {
-            value_needs_comma = true;
-        }
-        match *value {
-            JsonValue::Boolean(b) => if b {
-                tracked_write(output,&mut ret , "true")?;
-            } else {
-                tracked_write(output,&mut ret , "false")?;
-            },
-            JsonValue::Null => {
-                tracked_write(output,&mut ret , "null")?;
-            },
-            JsonValue::Number(n) => {
-                tracked_write(output,&mut ret , base10::i64(n).as_str())?;
-            },
-            JsonValue::String(s) => {
-                write_escaped_json_string(output, &mut ret , s)?;
-            },
-        }
-    }
-    tracked_write(output, &mut ret , "]")?;
-    Ok(ret)
-}
-
 fn tracked_write<T: StringWrite>(output: &mut T, counter: &mut usize, data: &str) -> Result<(), T::StringWriteFailure> {
     match output.write_string(data) {
         Ok(()) => {
@@ -892,6 +911,7 @@ fn write_escaped_json_string<T: StringWrite>(output: &mut T, counter: &mut usize
 }
 
 #[cfg(feature = "alloc")]
+#[doc(cfg(feature = "alloc"))]
 mod alloc {
 
     extern crate alloc as alloclib;
@@ -977,20 +997,19 @@ mod alloc {
 
 }
 
-#[cfg(feature = "std")]
-mod std {
-    extern crate std as stdlib;
-    use embedded_io_adapters::std::FromStd as StdIoAdapter;
-    use stdlib::io::Error as StandardLibIoError;
-    use stdlib::io::Write as StandardLibIoWrite;
 
+#[cfg(feature = "std")]
+#[doc(cfg(feature = "std"))]
+mod stdlib {
+    extern crate std;
+    use embedded_io_adapters::std::FromStd;
     use crate::FieldBuffer;
     use crate::JsonObject;
 
     impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
-        /// convenience method to serialize after wrapping std::io::Write with embedded_io_adapters::std::FromStd
-        pub fn serialize_std<Output: StandardLibIoWrite>(&self, output: Output) -> Result<usize,StandardLibIoError> {
-            self.serialize(StdIoAdapter::new(output))
+        /// convenience method to serialize to types implementing std::io::Write by wrapping it with embedded_io_adapters::std::FromStd
+        pub fn serialize_std<Output: std::io::Write>(&self, output: Output) -> Result<usize,std::io::Error> {
+            self.serialize(FromStd::new(output))
         }
     }
 }
@@ -1172,6 +1191,13 @@ mod test_core {
     }
 
     #[test]
+    fn test_display_array_empty() {
+        let mut buffer = [0_u8; 2];
+        buffer.as_mut_slice().write_fmt(format_args!("{}", ArrayJsonArray::<0>::new())).unwrap();
+        assert_eq!(b"[]", buffer.as_slice())
+    }
+
+    #[test]
     fn test_serialize_object_empty() {
         let mut buffer = [0_u8; 2];
         let test_object = ArrayJsonObject::<0>::new();
@@ -1181,9 +1207,9 @@ mod test_core {
 
     #[test]
     fn test_display_object_empty() {
-        let mut buffer = [0_u8; 1000];
+        let mut buffer = [0_u8; 2];
         buffer.as_mut_slice().write_fmt(format_args!("{}", ArrayJsonObject::<0>::new())).unwrap();
-        assert_eq!(b"{}", buffer.split_at(2).0)
+        assert_eq!(b"{}", buffer.as_slice())
     }
 
     #[test]
