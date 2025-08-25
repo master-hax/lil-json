@@ -469,7 +469,7 @@ impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
     pub fn parse(&mut self, data: &'a [u8], string_escape_buffer: &'a mut [u8]) -> Result<usize,JsonParseFailure> {
         let (data_end, parsed_fields) = parse_json_object(
             data,
-            ResultBuffer::Finite(0, self.fields.as_mut()),
+            ParseBuffer::Finite(0, self.fields.as_mut()),
             StringBuffer::Finite(0, string_escape_buffer),
         )?;
         let new_num_fields = parsed_fields;
@@ -545,21 +545,21 @@ extern crate alloc as alloclib;
 #[doc(cfg(feature = "alloc"))]
 use alloclib::{string::String, vec::Vec};
 
-/// a buffer that T can be written to
-pub enum ResultBuffer<'a,T> {
+/// a buffer that any sized type can be written to
+pub enum ParseBuffer<'a,T> {
     /// a finite buffer of T
     Finite(usize, &'a mut [T]),
     /// an infinite buffer of T
     #[cfg(any(feature = "alloc", doc))]
     #[doc(cfg(feature = "alloc"))]
-    Growable(usize,&'a mut Vec<T>)
+    Infinite(usize,&'a mut Vec<T>)
 }
 
-impl<'a,T> ResultBuffer<'a,T> {
+impl<'a,T> ParseBuffer<'a,T> {
 
     fn write_thing(&mut self, thing: T) -> Result<(),JsonParseFailure> {
         match self {
-            ResultBuffer::Finite(position, slice) => {
+            ParseBuffer::Finite(position, slice) => {
                 if *position == (*slice).len() {
                     Err(JsonParseFailure::FieldBufferTooSmall)
                 } else {
@@ -570,7 +570,7 @@ impl<'a,T> ResultBuffer<'a,T> {
             },
             #[cfg(feature = "alloc")]
             #[doc(cfg(feature = "alloc"))]
-            ResultBuffer::Growable(position,vec) => {
+            ParseBuffer::Infinite(position,vec) => {
                 if *position < vec.len() {
                     vec[*position] = thing;
                     *position += 1;
@@ -586,10 +586,10 @@ impl<'a,T> ResultBuffer<'a,T> {
 
     const fn consume(self) -> usize {
         match self {
-            ResultBuffer::Finite(n, _) => n,
+            ParseBuffer::Finite(n, _) => n,
             #[cfg(feature = "alloc")]
             #[doc(cfg(feature = "alloc"))]
-            ResultBuffer::Growable(n, _) => n,
+            ParseBuffer::Infinite(n, _) => n,
         }
     }
 }
@@ -653,7 +653,7 @@ impl<'a> StringBuffer<'a> {
 /// returns (num bytes consumed,num fields parsed) on success
 pub fn parse_json_object<'input_data: 'escaped_data,'escaped_data>(
     data: &'input_data [u8],
-    mut field_buffer: ResultBuffer<'_,JsonField<'escaped_data,'escaped_data>>,
+    mut field_buffer: ParseBuffer<'_,JsonField<'escaped_data,'escaped_data>>,
     mut string_escape_buffer: StringBuffer<'escaped_data>,
 ) -> Result<(usize,usize),JsonParseFailure> {
     let mut current_data_index = 0;
@@ -922,7 +922,7 @@ mod alloc {
 
     pub use elsa::FrozenVec;
 
-    use crate::{parse_json_object, FieldBufferMut, JsonField, JsonObject, JsonParseFailure, ResultBuffer};
+    use crate::{parse_json_object, FieldBufferMut, JsonField, JsonObject, JsonParseFailure, ParseBuffer};
 
     impl <'a, T: FieldBufferMut<'a>> JsonObject<T> {
         /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject while allocating space as needed for storing escaped strings
@@ -930,7 +930,7 @@ mod alloc {
         pub fn parse_alloc_buffer(&mut self, data: &'a [u8], escape_buffer: &'a FrozenVec<String>) -> Result<usize,JsonParseFailure> {
             let (data_end, parsed_fields) = parse_json_object(
                 data,
-                ResultBuffer::Finite(0,self.fields.as_mut()),
+                ParseBuffer::Finite(0,self.fields.as_mut()),
                 crate::StringBuffer::Infinite(String::new(), escape_buffer)
             )?;
             let new_num_fields = parsed_fields;
@@ -946,7 +946,7 @@ mod alloc {
         pub fn parse_alloc_fields(&mut self, data: &'a [u8], escape_buffer: &'a mut [u8]) -> Result<usize,JsonParseFailure> {
             let (data_end, parsed_fields) = parse_json_object(
                 data,
-                ResultBuffer::Growable(0, self.fields.as_mut()),
+                ParseBuffer::Infinite(0, self.fields.as_mut()),
                 crate::StringBuffer::Finite(0, escape_buffer),
             )?;
             let new_num_fields = parsed_fields;
@@ -959,7 +959,7 @@ mod alloc {
         pub fn parse_alloc(&mut self, data: &'a [u8], escape_buffer: &'a FrozenVec<String>) -> Result<usize,JsonParseFailure> {
             let (data_end, parsed_fields) = parse_json_object(
                 data,
-                ResultBuffer::Growable(0, self.fields.as_mut()),
+                ParseBuffer::Infinite(0, self.fields.as_mut()),
                 crate::StringBuffer::Infinite(String::new(), escape_buffer),
             )?;
             let new_num_fields = parsed_fields;
@@ -1026,7 +1026,7 @@ mod test_alloc {
     fn test_parse_core_vec_no_alloc_too_many_fields() {
         match parse_json_object(
             br#"{"a":0}"#,
-            ResultBuffer::Finite(0,&mut Vec::new()),
+            ParseBuffer::Finite(0,&mut Vec::new()),
             StringBuffer::Finite(0, &mut [0_u8; 256]),
         ) {
             Err(JsonParseFailure::FieldBufferTooSmall) => {},
@@ -1039,7 +1039,7 @@ mod test_alloc {
         let mut fields = Vec::new();
         match parse_json_object(
             br#"{"a":0}"#,
-            ResultBuffer::Growable(0,&mut fields),
+            ParseBuffer::Infinite(0,&mut fields),
             StringBuffer::Finite(0, &mut [0_u8; 256])
         ) {
             Ok((num_bytes, num_fields)) => {
@@ -1057,7 +1057,7 @@ mod test_alloc {
     fn test_parse_core_vec_success_empty() {
         let (bytes_consumed,num_fields_parsed) = parse_json_object(
             b"{}",
-            ResultBuffer::Growable(0,&mut Vec::new()),
+            ParseBuffer::Infinite(0,&mut Vec::new()),
             StringBuffer::Finite(0, &mut [0_u8; 256])
         ).unwrap();
         assert_eq!(2,bytes_consumed);
@@ -1092,7 +1092,7 @@ mod test_core {
         let mut escape_buffer = [0_u8; 256];
         let (bytes_consumed,num_fields) = parse_json_object(
             b"{}",
-            ResultBuffer::Finite(0,&mut []),
+            ParseBuffer::Finite(0,&mut []),
             StringBuffer::Finite(0, &mut escape_buffer),
         ).unwrap();
         assert_eq!(bytes_consumed, 2);
