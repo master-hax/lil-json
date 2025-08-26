@@ -34,7 +34,7 @@ fn proxy_json_object<Input: Read, Output: Write, Logs: Write>(mut input: Input, 
                 match ArrayJsonObject::<MAX_FIELDS>::new_parsed(read_buffer.split_at(read_buffer_end).0, &mut escape_buffer) {
                     Err(JsonParseFailure::Incomplete) => {
                         if read_buffer_end >= READ_BUFFER_SIZE {
-                            log_output.write_fmt(format_args!("failed to parse json object after {} bytes\n", read_buffer_end)).unwrap();
+                            log_output.write_fmt(format_args!("json object incomplete after {} bytes\n", read_buffer_end)).unwrap();
                             exit(1);
                         }
                         continue;
