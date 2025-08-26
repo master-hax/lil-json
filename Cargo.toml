@@ -41,6 +41,10 @@ name = "serialize_display"
 required-features = ["std"]
 
 [[example]]
+name = "serialize_std"
+required-features = ["std"]
+
+[[example]]
 name = "deserialize_array_object"
 required-features = []
 

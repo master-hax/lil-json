@@ -1006,7 +1006,7 @@ const COLON: &str = ":";
 const COMMA: &str = ",";
 
 /// the core function that powers serialization in the JsonObject API. It attempts to serialize the provided fields as a JSON object into the provided output, & returns the number of bytes written on success.
-fn serialize_json_object<'data, Output: StringWrite>(
+pub fn serialize_json_object<'data, Output: StringWrite>(
     output: &mut Output,
     fields: &[JsonField<'data,'data>],
     resume_from: usize,
