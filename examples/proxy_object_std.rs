@@ -1,4 +1,4 @@
-/// proxies a json object from stdin to stdout
+/// proxies a json object from stdin to stdout with stack buffers
 
 use std::{io::{stderr, stdin, stdout}, process::exit};
 
@@ -22,7 +22,7 @@ fn proxy_json_object<Input: Read, Output: Write, Logs: Write>(mut input: Input, 
     let mut escape_buffer = [0_u8; ESCAPE_BUFFER_SIZE];
     let mut read_buffer_end = 0;
     loop {
-        match input.read(read_buffer.as_mut_slice()) {
+        match input.read(read_buffer.split_at_mut(read_buffer_end).1) {
             // Ok(0) => break,
             Err(e) => {
                 // e.error
@@ -33,10 +33,11 @@ fn proxy_json_object<Input: Read, Output: Write, Logs: Write>(mut input: Input, 
                 read_buffer_end += n;
                 match ArrayJsonObject::<MAX_FIELDS>::new_parsed(read_buffer.split_at(read_buffer_end).0, &mut escape_buffer) {
                     Err(JsonParseFailure::Incomplete) => {
-                        if read_buffer_end >= READ_BUFFER_SIZE {
+                        if read_buffer_end == READ_BUFFER_SIZE {
                             log_output.write_fmt(format_args!("json object incomplete after {} bytes\n", read_buffer_end)).unwrap();
                             exit(1);
                         }
+                        assert!(read_buffer_end < READ_BUFFER_SIZE);
                         continue;
                     },
                     Err(e) => {
@@ -45,13 +46,13 @@ fn proxy_json_object<Input: Read, Output: Write, Logs: Write>(mut input: Input, 
                     },
                     Ok((bytes_consumed, json_object)) => {
                         log_output.write_fmt(format_args!("read {} bytes, parsed a json object in {} bytes with {} fields\n", read_buffer_end, bytes_consumed, json_object.len())).unwrap();
+                        log_output.flush().unwrap();
                         json_object.serialize(&mut output).unwrap();
-                        exit(0)
+                        break;
                     },
                 }
             },
 
         }
-
     }
 }
