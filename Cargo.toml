@@ -28,7 +28,6 @@ numtoa = { version = "0.3.1", default-features = false }
 [dev-dependencies]
 embedded-io-adapters = { version = "0.6.2", default-features = false, features = ["std"] }
 
-
 [[example]]
 name = "serialize_array_object"
 required-features = ["std"]

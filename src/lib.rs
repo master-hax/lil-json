@@ -3,9 +3,13 @@
 use core::fmt::{Debug, Display, Formatter, Write as CoreFmtWrite};
 use embedded_io::{ErrorType, Write};
 use numtoa::base10;
+
+#[cfg(feature = "alloc")]
+extern crate elsa;
 #[cfg(feature = "alloc")]
 use elsa::FrozenVec;
 
+/// trait for types that JSON can be serialized into. mainly meant for internal usage.
 pub trait StringWrite {
     type StringWriteFailure: Debug;
     fn write_char(&mut self, data: char, bytes_to_skip: usize) -> Result<usize,(usize,Self::StringWriteFailure)>;
@@ -14,7 +18,7 @@ pub trait StringWrite {
 impl<T: Write + ErrorType> StringWrite for T {
     type StringWriteFailure = T::Error;
     fn write_char(&mut self, data: char, resume_from: usize) -> Result<usize,(usize,Self::StringWriteFailure)> {
-        // debug_assert!(bytes_to_skip <= 4);
+        debug_assert!(resume_from <= 4);
         let mut str_buffer = [0_u8; 4];
         let encoded_string = data.encode_utf8(str_buffer.as_mut_slice()).as_bytes();
         let to_skip = core::cmp::min(encoded_string.len(), resume_from);
@@ -50,18 +54,6 @@ impl<'a> StringWrite for FormatWrapper<&mut Formatter<'a>> {
             Err(e) => Err((0,e))
         }
     }
-
-    // fn write_string(&mut self, data: &str) -> Result<(),(usize,Self::StringWriteFailure)> {
-    //     match self.inner.write_str(data) {
-    //         Ok(()) => {
-    //             Ok(())
-    //         },
-    //         Err(e) => {
-    //             Err((0,e))
-    //         },
-    //     }
-    // }
-    
 }
 
 /// trait for an optionally mutable collection of JSON array values
@@ -96,10 +88,10 @@ pub trait ValueBufferMut<'a>: ValueBuffer<'a> +  AsMut<[JsonField<'a,'a>]> {
 impl <'a,T: ValueBuffer<'a> + AsMut<[JsonField<'a,'a>]>> ValueBufferMut<'a> for T {}
 
 
-/// trait for an optionally mutable collection of JSON object fields
+/// trait for all optionally mutable collection of JSON object fields
 pub trait FieldBuffer<'data>: AsRef<[JsonField<'data,'data>]> {
 
-    /// convenience one-liner to call JsonObject::wrap_init on this Sized type, consuming it
+    /// convenience one-liner to call JsonObject::wrap_init on this Sized type, moving it
     fn into_json_object(self) -> JsonObject<Self> where Self: Sized {
         JsonObject::wrap_init(self)
     }
@@ -617,17 +609,17 @@ impl<'a,const N: usize> ArrayJsonObject<'a,N> {
 
 }
 
-#[cfg(any(feature = "alloc", doc))]
+#[cfg(feature = "alloc")]
 extern crate alloc as alloclib;
-#[cfg(any(feature = "alloc", doc))]
+#[cfg(feature = "alloc")]
 use alloclib::{string::String, vec::Vec};
 
-/// a buffer that any sized type can be written to
+/// a buffer that any sized type can be written to. `ParseBuffer::Infinite` is only available with the `alloc` feature enabled.
 pub enum ParseBuffer<'a,T> {
     /// a finite buffer of T
     Finite(usize, &'a mut [T]),
     /// an infinite buffer of T
-    #[cfg(any(feature = "alloc", doc))]
+    #[cfg(feature = "alloc")]
     Infinite(usize,&'a mut Vec<T>)
 }
 
@@ -645,7 +637,6 @@ impl<'a,T> ParseBuffer<'a,T> {
                 }
             },
             #[cfg(feature = "alloc")]
-            /// parse into an infinite buffer (required `alloc` feature)
             ParseBuffer::Infinite(position,vec) => {
                 if *position < vec.len() {
                     vec[*position] = thing;
@@ -664,7 +655,6 @@ impl<'a,T> ParseBuffer<'a,T> {
         match self {
             ParseBuffer::Finite(n, _) => n,
             #[cfg(feature = "alloc")]
-            #[doc(cfg(feature = "alloc"))]
             ParseBuffer::Infinite(n, _) => n,
         }
     }
@@ -680,7 +670,6 @@ impl<'a,T> ParseBuffer<'a,T> {
 pub enum StringBuffer<'a> {
     Finite(usize, &'a mut [u8]),
     #[cfg(feature = "alloc")]
-    #[doc(cfg(feature = "alloc"))]
     Infinite(String,&'a FrozenVec<String>),
 }
 
@@ -702,7 +691,6 @@ impl<'a> StringBuffer<'a> {
                 Ok(())
             },
             #[cfg(feature = "alloc")]
-            #[doc(cfg(feature = "alloc"))]
             StringBuffer::Infinite(current_string, _frozen_vec) => {
                 current_string.push_str(string);
                 Ok(())
@@ -719,7 +707,6 @@ impl<'a> StringBuffer<'a> {
                 unsafe { core::str::from_utf8_unchecked(ret) }
             },
             #[cfg(feature = "alloc")]
-            #[doc(cfg(feature = "alloc"))]
             StringBuffer::Infinite(current_string, frozen_vec) => {
                 let completed_string = core::mem::replace(current_string, String::new());
                 let x = frozen_vec.push_get(completed_string);
@@ -1099,7 +1086,6 @@ fn write_escaped_json_string<T: StringWrite>(output: &mut T, counter: &mut usize
 }
 
 #[cfg(feature = "alloc")]
-#[doc(cfg(feature = "alloc"))]
 mod alloc {
 
     extern crate alloc as alloclib;
@@ -1156,38 +1142,10 @@ mod alloc {
         }
     }
 
-    // impl<V> JsonBuffer<V> for Vec<V> {}
-    // impl<V> JsonBuffer<V> for &Vec<V> {}
-    // impl<V> JsonBuffer<V> for &mut Vec<V> {}
-    // impl<V> JsonBufferMut<V> for Vec<V> {
-    //     fn set_or_push_value(&mut self, n: usize, value: V) -> Result<(), JsonParseFailure> {
-    //         assert!(n <= self.len());
-    //         if n == self.len() {
-    //             self.push(value);
-    //         } else {
-    //             self[n] = value;
-    //         }
-    //         Ok(())
-    //     }
-    // }
-    // impl<V> JsonBufferMut<V> for &mut Vec<V> {
-    //     fn set_or_push_value(&mut self, n: usize, value: V) -> Result<(), JsonParseFailure> {
-    //         assert!(n <= self.len());
-    //         if n == self.len() {
-    //             self.push(value);
-    //         } else {
-    //             self[n] = value;
-    //         }
-    //         Ok(())
-    //     }
-    // }
-
-
 }
 
 
 #[cfg(feature = "std")]
-#[doc(cfg(feature = "std"))]
 mod stdlib {
     extern crate std;
     use embedded_io_adapters::std::FromStd;
