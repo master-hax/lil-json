@@ -23,10 +23,8 @@ fn proxy_json_object<Input: Read, Output: Write, Logs: Write>(mut input: Input, 
     let mut read_buffer_end = 0;
     loop {
         match input.read(read_buffer.split_at_mut(read_buffer_end).1) {
-            // Ok(0) => break,
             Err(e) => {
-                // e.error
-                eprintln!("failed to read from stdin: {:?}", e);
+                eprintln!("failed to read from input: {:?}", e);
                 exit(1);
             },
             Ok(n) => {
@@ -47,7 +45,7 @@ fn proxy_json_object<Input: Read, Output: Write, Logs: Write>(mut input: Input, 
                     Ok((bytes_consumed, json_object)) => {
                         log_output.write_fmt(format_args!("read {} bytes, parsed a json object in {} bytes with {} fields\n", read_buffer_end, bytes_consumed, json_object.len())).unwrap();
                         log_output.flush().unwrap();
-                        json_object.serialize(&mut output).unwrap();
+                        json_object.serialize(&mut output).expect("failed to write to output");
                         break;
                     },
                 }
