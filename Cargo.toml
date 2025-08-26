@@ -7,7 +7,7 @@ repository = "https://github.com/master-hax/lil-json"
 license = "MIT OR Apache-2.0"
 description = "serialize & deserialize JSON in no_std"
 documentation = "https://docs.rs/lil-json"
-keywords = ["json"]
+keywords = ["lil", "json", "parsing", "serialization" ]
 categories = ["parsing", "no-std", "no-std::no-alloc", "embedded", "web-programming"]
 exclude = [
     ".gitignore",
