@@ -42,7 +42,7 @@ fn main() {
 
 ```
 
-Still a work in progress. Expect bugs & breaking API changes.
+Still a work in progress. Expect bugs & breaking API changes. Check out the examples to get started.
 
 the following types are currently supported:
 * objects (currently limited to non-nested types)
