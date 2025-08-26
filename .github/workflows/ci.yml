@@ -14,3 +14,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # https://github.com/actions/checkout/tree/v4.2.2
       - name: Test
         run: cargo test
+      - name: Test alloc
+        run: cargo test --features alloc
+      - name: Test std
+        run: cargo test --features std
