@@ -20,6 +20,7 @@ fn main() {
     let serialized = serialize_buffer.split_at(serialized_end).0;
     assert_eq!(br#"{"some_number":12345,"some_string":"hello world!","some_boolean":true}"#, serialized);
 
+    // JSON strings need to be escaped; this space is used to store the escaped strings
     let mut escape_buffer = [0_u8; 128];
 
     // parse a JSON object from the serialized data

@@ -47,3 +47,7 @@ required-features = []
 [[example]]
 name = "deserialize_object_alloc_fields"
 required-features = ["alloc"]
+
+[[example]]
+name = "deserialize_object_alloc_escape"
+required-features = ["alloc"]
