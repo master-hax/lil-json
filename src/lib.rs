@@ -492,7 +492,7 @@ impl <'a,T: FieldBuffer<'a>> Display for JsonObject<T> {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         match serialize_json_object(
             &mut FormatWrapper::new(fmt),
-            self.fields.as_ref(),
+            self.fields.as_ref().split_at(self.num_fields).0,
             0
         ) {
             Ok(_) => Ok(()),
