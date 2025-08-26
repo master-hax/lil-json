@@ -10,20 +10,19 @@ Only 4 dependencies:
 
 JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html) or a `String` (with `alloc` feature enabled). Take a look at the [documentation](https://docs.rs/lil-json/latest/lil_json/).
 
-Here is a minimal example of serializing a JSON object to stdout with a one-liner, making use of the `lil-json::FieldBuffer` auto trait, `core::convert::From for JsonValue`, & `core::convert::Into for JsonField`
+Here is a minimal example of printing JSON object to stdout with a one-liner (making use of `lil-json::FieldBuffer`, `core::convert::From for JsonValue`, & `core::convert::Into for JsonField`):
 ```rust
-use std::io::stdout;
 use lil_json::FieldBuffer;
 
 fn main() {
-    [
-        ("some_number", 12345).into(),
-        ("some_string", "hello world!").into(),
-        ("some_boolean", true).into()
-    ]
-    .as_json_object()
-    .serialize_std(stdout())
-    .unwrap();
+    println!(
+        "{}",
+        [
+            ("some_number", 12345).into(),
+            ("some_string", "hello world!").into(),
+            ("some_boolean", true).into()
+        ].as_json_object()
+    );
 }
 
 // output: {"some_number":12345,"some_string":"hello world!","some_boolean":true}

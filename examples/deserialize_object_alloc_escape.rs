@@ -1,4 +1,4 @@
-use lil_json::{ArrayJsonObject, InfiniteEscapeBuffer, JsonField, JsonObject, JsonValue, EMPTY_FIELD};
+use lil_json::{ArrayJsonObject, InfiniteEscapeBuffer, JsonField, JsonValue};
 
 fn main() {
     const SERIALIZED_DATA: &[u8] = br#"{"some_string_key":"some_string_value"}"#;
