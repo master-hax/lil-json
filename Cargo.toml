@@ -14,7 +14,7 @@ exclude = [
 ]
 
 [features]
-default = []
+default = ["full"]
 full = ["std"]
 std = ["alloc", "embedded-io-adapters/std"]
 alloc = [ "embedded-io/alloc", "dep:elsa" ]

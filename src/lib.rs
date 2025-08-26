@@ -238,6 +238,9 @@ impl<'a> From<&'a str> for JsonValue<'a> {
     }
 }
 
+/// a default JSON value with static lifetime. equivalent to `JsonValue::Null`.
+pub const EMPTY_VALUE: JsonValue<'static> = JsonValue::Null;
+
 /// a field within a JSON object
 #[derive(Debug,PartialEq,Eq,Clone,Copy)]
 pub struct JsonField<'a,'b> {
@@ -285,7 +288,7 @@ impl<'a,T: FieldBuffer<'a>> PartialEq for JsonObject<T> {
 /// PartialEq for JsonObject is reflexive
 impl<'a,T: FieldBuffer<'a>> Eq for JsonObject<T> {}
 
-/// a default JSON field with static lifetime. equivalent to `{"":null}``.
+/// a default JSON field with static lifetime. equivalent to `JsonField::new("", JsonValue::Null)`
 pub const EMPTY_FIELD: JsonField<'static,'static> = JsonField{ key: "", value: JsonValue::Null};
 
 impl <'a,'b,V: Into<JsonValue<'b>>> From<(&'a str, V)> for JsonField<'a,'b> {
