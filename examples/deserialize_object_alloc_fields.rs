@@ -3,8 +3,8 @@ use lil_json::{JsonField, JsonObject, JsonValue};
 fn main() {
     const SERIALIZED_DATA: &[u8] = br#"{"some_string_key":"some_string_value"}"#;
     let mut string_escape_buffer = [0_u8; 100];
-    let mut field_buffer_vec = Vec::new();
-    let mut alloc_enabled_json_object = JsonObject::wrap(&mut field_buffer_vec);
+    let mut alloc_enabled_json_object = JsonObject::wrap(Vec::new());
+    // parse_alloc_fields is enabled by using wrapping a Vec
     let bytes_consumed = alloc_enabled_json_object.parse_alloc_fields(
         SERIALIZED_DATA,
         string_escape_buffer.as_mut_slice()
