@@ -1,32 +1,30 @@
 #![no_std]
-#![feature(doc_cfg)]
 
-use core::fmt::{Debug, Display, Formatter};
-use embedded_io::{Write};
+use core::fmt::{Debug, Display, Formatter, Write as CoreFmtWrite};
+use embedded_io::{ErrorType, Write};
 use numtoa::base10;
 #[cfg(feature = "alloc")]
 use elsa::FrozenVec;
 
-trait StringWrite {
+pub trait StringWrite {
     type StringWriteFailure: Debug;
-    fn write_string(&mut self, data: &str) -> Result<(),(usize,Self::StringWriteFailure)>;
+    fn write_char(&mut self, data: char, bytes_to_skip: usize) -> Result<usize,(usize,Self::StringWriteFailure)>;
 }
 
-impl<T: Write> StringWrite for T {
+impl<T: Write + ErrorType> StringWrite for T {
     type StringWriteFailure = T::Error;
-    fn write_string(&mut self, mut data: &str) -> Result<(),(usize,Self::StringWriteFailure)> {
-        let mut written = 0_usize;
-        loop {
-            if data.is_empty() {
-                return Ok(());
-            }
-            let n = match self.write(data.as_bytes()) {
-                Ok(0) => panic!("zero write"),
-                Err(e) => return Err((written,e)),
-                Ok(n) => n,
-            };
-            written += n;
-            data = data.split_at(n).1
+    fn write_char(&mut self, data: char, resume_from: usize) -> Result<usize,(usize,Self::StringWriteFailure)> {
+        // debug_assert!(bytes_to_skip <= 4);
+        let mut str_buffer = [0_u8; 4];
+        let encoded_string = data.encode_utf8(str_buffer.as_mut_slice()).as_bytes();
+        let to_skip = core::cmp::min(encoded_string.len(), resume_from);
+        let target = encoded_string.split_at(to_skip).1;
+        if target.is_empty() {
+            return Ok(0);
+        }
+        match self.write_all(target) {
+            Ok(()) => Ok(target.len() + to_skip),
+            Err(e) => Err((0,e))
         }
     }
 }
@@ -43,16 +41,27 @@ impl<T> FormatWrapper<T> {
 
 impl<'a> StringWrite for FormatWrapper<&mut Formatter<'a>> {
     type StringWriteFailure = core::fmt::Error;
-    fn write_string(&mut self, data: &str) -> Result<(),(usize,Self::StringWriteFailure)> {
-        match self.inner.write_str(data) {
-            Ok(()) => {
-                Ok(())
-            },
-            Err(e) => {
-                Err((0,e))
-            },
+    fn write_char(&mut self, data: char, bytes_to_skip: usize) -> Result<usize,(usize,Self::StringWriteFailure)> {
+        assert!(bytes_to_skip == 0);
+        let mut encoding_buffer = [0_u8; 4];
+        let n = data.encode_utf8(encoding_buffer.as_mut_slice()).len();
+        match self.inner.write_char(data) {
+            Ok(()) => Ok(n),
+            Err(e) => Err((0,e))
         }
     }
+
+    // fn write_string(&mut self, data: &str) -> Result<(),(usize,Self::StringWriteFailure)> {
+    //     match self.inner.write_str(data) {
+    //         Ok(()) => {
+    //             Ok(())
+    //         },
+    //         Err(e) => {
+    //             Err((0,e))
+    //         },
+    //     }
+    // }
+    
 }
 
 /// trait for an optionally mutable collection of JSON array values
@@ -155,7 +164,7 @@ pub enum JsonValue<'a> {
 }
 
 impl <'a> JsonValue<'a> {
-    fn parse(data: &'a [u8], escape_buffer_slice: &'a mut [u8]) -> Result<(usize,Self),JsonParseFailure> {
+    pub fn parse(data: &'a [u8], escape_buffer_slice: &'a mut [u8]) -> Result<(usize,Self),JsonParseFailure> {
         let mut escape_buffer = StringBuffer::Finite(0, escape_buffer_slice);
         let mut current_data_index = 0_usize;
         skip_whitespace(&mut current_data_index, data)?;
@@ -343,20 +352,30 @@ impl <'a,T: ValueBuffer<'a>> JsonArray<T> {
         self.values.as_ref().split_at(self.num_values).0
     }
 
+    /// attempt to serialize this JsonArray into the provided output & returns the number of bytes written on success
     pub fn serialize<Output: Write>(&self, mut output: Output) -> Result<usize,Output::Error> {
-        serialize_json_array_internal(&mut output, self.values().as_ref())
+        match serialize_json_array(&mut output, self.values().as_ref(), 0) {
+            Ok(n) => Ok(n),
+            Err((_written,e)) => Err(e),
+        }
+    }
+
+    /// attempt to serialize this JsonArray into the provided output starting from `resume_from` & returns the number of bytes written on both success & failure
+    pub fn serialize_resume<Output: Write>(&self, mut output: Output, resume_from: usize) -> Result<usize,(usize,Output::Error)> {
+        serialize_json_array(&mut output, self.values().as_ref(), resume_from)
     }
 
 }
 
 impl <'a,T: ValueBuffer<'a>> Display for JsonArray<T> {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
-        match serialize_json_array_internal(
+        match serialize_json_array(
             &mut FormatWrapper::new(fmt),
             self.values.as_ref(),
+            0,
         ) {
             Ok(_) => Ok(()),
-            Err(e) => Err(e)
+            Err((_written,e)) => Err(e),
         }
     }
 }
@@ -458,18 +477,27 @@ impl <'a,T: FieldBuffer<'a>> JsonObject<T> {
 
     /// attempt to serialize this JsonObject into the provided output & returns the number of bytes written on success
     pub fn serialize<Output: Write>(&self, mut output: Output) -> Result<usize,Output::Error> {
-        serialize_json_object_internal(&mut output, self.fields().as_ref())
+        match serialize_json_object(&mut output, self.fields().as_ref(), 0) {
+            Ok(n) => Ok(n),
+            Err((_written,e)) => Err(e),
+        }
+    }
+
+    /// attempt to serialize this JsonObject into the provided output starting from `resume_from` & returns the number of bytes written on both success & failure
+    pub fn serialize_resume<Output: Write>(&self, mut output: Output, resume_from: usize) -> Result<usize,(usize,Output::Error)> {
+        serialize_json_object(&mut output, self.fields().as_ref(), resume_from)
     }
 }
 
 impl <'a,T: FieldBuffer<'a>> Display for JsonObject<T> {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
-        match serialize_json_object_internal(
+        match serialize_json_object(
             &mut FormatWrapper::new(fmt),
             self.fields.as_ref(),
+            0
         ) {
             Ok(_) => Ok(()),
-            Err(e) => Err(e)
+            Err((_written,e)) => Err(e),
         }
     }
 }
@@ -590,10 +618,8 @@ impl<'a,const N: usize> ArrayJsonObject<'a,N> {
 }
 
 #[cfg(any(feature = "alloc", doc))]
-#[doc(cfg(feature = "alloc"))]
 extern crate alloc as alloclib;
 #[cfg(any(feature = "alloc", doc))]
-#[doc(cfg(feature = "alloc"))]
 use alloclib::{string::String, vec::Vec};
 
 /// a buffer that any sized type can be written to
@@ -602,7 +628,6 @@ pub enum ParseBuffer<'a,T> {
     Finite(usize, &'a mut [T]),
     /// an infinite buffer of T
     #[cfg(any(feature = "alloc", doc))]
-    #[doc(cfg(feature = "alloc"))]
     Infinite(usize,&'a mut Vec<T>)
 }
 
@@ -620,7 +645,7 @@ impl<'a,T> ParseBuffer<'a,T> {
                 }
             },
             #[cfg(feature = "alloc")]
-            #[doc(cfg(feature = "alloc"))]
+            /// parse into an infinite buffer (required `alloc` feature)
             ParseBuffer::Infinite(position,vec) => {
                 if *position < vec.len() {
                     vec[*position] = thing;
@@ -644,6 +669,12 @@ impl<'a,T> ParseBuffer<'a,T> {
         }
     }
 }
+
+// pub enum StringOutput<T> {
+//     Write(usize,T),
+
+//     String(String),
+// }
 
 /// a buffer that string slices can be written to
 pub enum StringBuffer<'a> {
@@ -923,45 +954,39 @@ fn skip_whitespace(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure
 }
 
 /// the core function that powers serialization in the JsonArray API. It attempts to serialize the provided values as a JSON array into the provided output & returns the number of bytes written on success.
-fn serialize_json_array<'data, Output: Write>(
+pub fn serialize_json_array<'data, Output: StringWrite>(
     output: &mut Output,
     fields: &[JsonValue<'data>],
-) -> Result<usize, Output::Error> {
-    serialize_json_array_internal(output, fields)
-}
-
-fn serialize_json_array_internal<'data, Output: StringWrite>(
-    output: &mut Output,
-    fields: &[JsonValue<'data>],
-) -> Result<usize, Output::StringWriteFailure> {
+    resume_from: usize,
+) -> Result<usize, (usize,Output::StringWriteFailure)> {
     let mut ret = 0;
-    tracked_write(output,&mut ret , LEFT_SQUARE_BRACKET)?;
+    tracked_write(output,&mut ret , &resume_from, LEFT_SQUARE_BRACKET)?;
     let mut value_needs_comma = false;
     for value in fields.as_ref().iter() {
         if value_needs_comma {
-            tracked_write(output,&mut ret , ",")?;
+            tracked_write(output,&mut ret , &resume_from, ",")?;
         } else {
             value_needs_comma = true;
         }
         match *value {
             JsonValue::Boolean(b) => if b {
-                tracked_write(output,&mut ret , "true")?;
+                tracked_write(output,&mut ret , &resume_from, "true")?;
             } else {
-                tracked_write(output,&mut ret , "false")?;
+                tracked_write(output,&mut ret , &resume_from, "false")?;
             },
             JsonValue::Null => {
-                tracked_write(output,&mut ret , "null")?;
+                tracked_write(output,&mut ret , &resume_from, "null")?;
             },
             JsonValue::Number(n) => {
-                tracked_write(output,&mut ret , base10::i64(n).as_str())?;
+                tracked_write(output,&mut ret , &resume_from, base10::i64(n).as_str())?;
             },
             JsonValue::String(s) => {
-                write_escaped_json_string(output, &mut ret , s)?;
+                write_escaped_json_string(output, &mut ret , &resume_from, s)?;
             },
         }
     }
-    tracked_write(output, &mut ret , RIGHT_SQUARE_BRACKET)?;
-    Ok(ret)
+    tracked_write(output, &mut ret , &resume_from, RIGHT_SQUARE_BRACKET)?;
+    Ok(ret.saturating_sub(resume_from))
 }
 
 // const LEFT_SQUARE_BRACKET_CHAR: char = '{';
@@ -973,74 +998,103 @@ const COLON: &str = ":";
 const COMMA: &str = ",";
 
 /// the core function that powers serialization in the JsonObject API. It attempts to serialize the provided fields as a JSON object into the provided output, & returns the number of bytes written on success.
-pub fn serialize_json_object<'data, Output: Write>(
+fn serialize_json_object<'data, Output: StringWrite>(
     output: &mut Output,
     fields: &[JsonField<'data,'data>],
-) -> Result<usize, Output::Error> {
-    serialize_json_object_internal(output, fields)
-}
-
-fn serialize_json_object_internal<'data, Output: StringWrite>(
-    output: &mut Output,
-    fields: &[JsonField<'data,'data>],
-) -> Result<usize, Output::StringWriteFailure> {
+    resume_from: usize,
+) -> Result<usize, (usize,Output::StringWriteFailure)> {
     let mut ret = 0;
-    tracked_write(output,&mut ret , LEFT_CURLY_BRACKET)?;
+    tracked_write(output,&mut ret , &resume_from, LEFT_CURLY_BRACKET)?;
     let mut field_needs_comma = false;
     for field in fields.as_ref().iter() {
         if field_needs_comma {
-            tracked_write(output,&mut ret , COMMA)?;
+            tracked_write(output,&mut ret , &resume_from, COMMA)?;
         } else {
             field_needs_comma = true;
         }
-        write_escaped_json_string(output, &mut ret , field.key)?;
-        tracked_write(output, &mut ret , COLON)?;
+        write_escaped_json_string(output, &mut ret , &resume_from, field.key)?;
+        tracked_write(output, &mut ret, &resume_from, COLON)?;
         match field.value {
             JsonValue::Boolean(b) => if b {
-                tracked_write(output,&mut ret , "true")?;
+                tracked_write(output,&mut ret , &resume_from, "true")?;
             } else {
-                tracked_write(output,&mut ret , "false")?;
+                tracked_write(output,&mut ret , &resume_from, "false")?;
             },
             JsonValue::Null => {
-                tracked_write(output,&mut ret , "null")?;
+                tracked_write(output,&mut ret , &resume_from, "null")?;
             },
             JsonValue::Number(n) => {
-                tracked_write(output,&mut ret , base10::i64(n).as_str())?;
+                tracked_write(output,&mut ret , &resume_from, base10::i64(n).as_str())?;
             },
             JsonValue::String(s) => {
-                write_escaped_json_string(output, &mut ret , s)?;
+                write_escaped_json_string(output, &mut ret , &resume_from, s)?;
             },
         }
     }
-    tracked_write(output, &mut ret , RIGHT_CURLY_BRACKET)?;
-    Ok(ret)
+    tracked_write(output, &mut ret, &resume_from, RIGHT_CURLY_BRACKET)?;
+    Ok(ret.saturating_sub(resume_from))
 }
 
-fn tracked_write<T: StringWrite>(output: &mut T, counter: &mut usize, data: &str) -> Result<(), T::StringWriteFailure> {
-    match output.write_string(data) {
-        Ok(()) => {
-            *counter += data.len();
-            Ok(())
-        },
-        Err((partial, e)) => {
-            *counter += partial;
-            Err(e)
-        },
+fn tracked_write<T: StringWrite>(output: &mut T, counter: &mut usize, resume_from: &usize, the_string: &str) -> Result<(), (usize,T::StringWriteFailure)> {
+    let mut encoding_buffer = [0_u8; 4];
+    for char in the_string.chars() {
+        let encoded_char = char.encode_utf8(encoding_buffer.as_mut_slice());
+        let to_skip = if resume_from <= counter {
+            0
+        } else {
+            let to_skip = *resume_from - *counter;
+            if to_skip >= encoded_char.len() {
+                *counter += encoded_char.len();
+                continue;
+            } else {
+                to_skip
+            }
+        };
+        match output.write_char(char, to_skip) {
+            Ok(n_success) => *counter += n_success,
+            Err((n_failed, e)) => {
+                *counter += n_failed;
+                return Err((counter.saturating_sub(*resume_from), e));
+            },
+        };
     }
+    Ok(())
+    // let to_skip = if resume_from <= counter {
+    //     0
+    // } else {
+    //     let to_skip = *resume_from - *counter;
+    //     if to_skip >= data.len() {
+    //         *counter += data.len();
+    //         return Ok(());
+    //     } else {
+    //         to_skip
+    //     }
+    // };
+    // let target = data.split_at(to_skip).1;
+    // match output.write_string(target) {
+    //     Ok(n) => {
+    //         *counter += n;
+    //         Ok(())
+    //     },
+    //     Err((partial, e)) => {
+    //         *counter += partial;
+    //         Err((counter.saturating_sub(*resume_from),e))
+    //     },
+    // }
 }
 
-fn write_escaped_json_string<T: StringWrite>(output: &mut T, counter: &mut usize, data: &str) -> Result<(), T::StringWriteFailure> {
-    tracked_write(output, counter, "\"")?;
+fn write_escaped_json_string<T: StringWrite>(output: &mut T, counter: &mut usize, resume_from: &usize, data: &str) -> Result<(), (usize,T::StringWriteFailure)> {
+    tracked_write(output, counter, resume_from, "\"")?;
     for field_character in data.chars() {
         if !field_character.is_ascii() {
             continue;
         } else if let Some(escape_sequence) = escape_char(field_character) {
-            tracked_write(output, counter, escape_sequence)?;
+            tracked_write(output, counter, resume_from, escape_sequence)?;
         } else {
-            tracked_write(output, counter, field_character.encode_utf8(&mut [0_u8; 4]))?;
+            tracked_write(output, counter, resume_from, field_character.encode_utf8(&mut [0_u8; 4]))?;
         }
     }
-    tracked_write(output, counter, "\"")?;
+    tracked_write(output, counter, resume_from, "\"")?;
     Ok(())
 }
 
@@ -1219,6 +1273,8 @@ mod test_alloc {
 #[cfg(test)]
 mod test_core {
 
+    use embedded_io::SliceWriteError;
+
     use super::*;
 
     #[test]
@@ -1396,6 +1452,14 @@ mod test_core {
     }
 
     #[test]
+    fn test_serialize_resume_array_empty() {
+        let mut buffer = [0_u8; 2];
+        let test_array = ArrayJsonArray::<0>::new();
+        let n = test_array.serialize_resume(buffer.as_mut_slice(),1).unwrap();
+        assert_eq!(b"]", buffer.split_at(n).0)
+    }
+
+    #[test]
     fn test_display_array_empty() {
         let mut buffer = [0_u8; 2];
         buffer.as_mut_slice().write_fmt(format_args!("{}", ArrayJsonArray::<0>::new())).unwrap();
@@ -1408,6 +1472,30 @@ mod test_core {
         let test_object = ArrayJsonObject::<0>::new();
         let n = test_object.serialize(buffer.as_mut_slice()).unwrap();
         assert_eq!(b"{}", buffer.split_at(n).0)
+    }
+
+    #[test]
+    fn test_serialize_resume_object_empty() {
+        let mut buffer = [0_u8; 2];
+        let test_object = ArrayJsonObject::<0>::new();
+        let n = test_object.serialize_resume(buffer.as_mut_slice(), 1).unwrap();
+        assert_eq!(b"}", buffer.split_at(n).0)
+    }
+
+    #[test]
+    fn test_serialize_resume_skip_object_empty() {
+        let mut buffer = [0_u8; 2];
+        let test_object = ArrayJsonObject::<0>::new();
+        let n = test_object.serialize_resume(buffer.as_mut_slice(), 2).unwrap();
+        assert_eq!(b"", buffer.split_at(n).0)
+    }
+
+    #[test]
+    fn test_serialize_resume_too_many_object_empty() {
+        let mut buffer = [0_u8; 2];
+        let test_object = ArrayJsonObject::<0>::new();
+        let n = test_object.serialize_resume(buffer.as_mut_slice(), 3).unwrap();
+        assert_eq!(b"", buffer.split_at(n).0)
     }
 
     #[test]
@@ -1428,6 +1516,47 @@ mod test_core {
         test_map.push_field("null_thing", JsonValue::Null).unwrap();
         let n = test_map.serialize(buffer.as_mut_slice()).unwrap();
         assert_eq!(br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false,"null_thing":null}"#, buffer.split_at(n).0)
+    }
+
+    #[test]
+    fn test_serialize_resume_object_simple() {
+        const SKIP: usize = 10;
+        const EXPECTED: &[u8] = br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false,"null_thing":null}"#.split_at(SKIP).1;
+
+        let mut buffer = [0_u8; 1000];
+        let mut test_map = ArrayJsonObject::<50>::new();
+        test_map.push_field("sub", JsonValue::String("1234567890")).unwrap();
+        test_map.push_field("name", JsonValue::String("John Doe")).unwrap();
+        test_map.push_field("iat", JsonValue::Number(1516239022)).unwrap();
+        test_map.push_field("something", JsonValue::Boolean(false)).unwrap();
+        test_map.push_field("null_thing", JsonValue::Null).unwrap();
+        let n = test_map.serialize_resume(buffer.as_mut_slice(), 10).unwrap();
+        assert_eq!(EXPECTED, buffer.split_at(n).0)
+    }
+
+    #[test]
+    fn test_serialize_resume_object_single_byte() {
+        const EXPECTED: &[u8] = br#"{"sub":"1234567890","name":"John Doe","iat":1516239022,"something":false,"null_thing":null}"#;
+
+        let mut buffer = [0_u8; 1];
+        let mut test_map = ArrayJsonObject::<50>::new();
+        test_map.push_field("sub", JsonValue::String("1234567890")).unwrap();
+        test_map.push_field("name", JsonValue::String("John Doe")).unwrap();
+        test_map.push_field("iat", JsonValue::Number(1516239022)).unwrap();
+        test_map.push_field("something", JsonValue::Boolean(false)).unwrap();
+        test_map.push_field("null_thing", JsonValue::Null).unwrap();
+
+        // attempt to resume from every each byte
+        for (index,expected_byte) in EXPECTED.iter().enumerate() {
+            match test_map.serialize_resume(buffer.as_mut_slice(), index) {
+                Err((1,SliceWriteError::Full)) => {
+                    assert_eq!(*expected_byte as char, buffer[0] as char)
+                },
+                Ok(0) => assert_eq!(EXPECTED.len(),index),
+                Ok(1) => assert_eq!(EXPECTED.len()-1,index),
+                unexpected => panic!("{:?}", unexpected),
+            };
+        }
     }
 
 }
