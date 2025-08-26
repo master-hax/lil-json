@@ -42,18 +42,17 @@ fn main() {
 
 ```
 
-Still a work in progress. Not everything is complete. String escaping is not fully not completed yet.
+Still a work in progress. Expect bugs & breaking API changes.
 
 the following types are currently supported:
-* objects (currently limited to non-nested objects)
+* objects (currently limited to non-nested types)
 * string (currently limited to ascii-)
 * boolean
 * null
 * number (currently limited to integers)
 
 the following types are not currently supported:
-* arrays
-* nested types
+* arrays (currently limited to non-nested types)
 
 TODO:
 - [x] support null type
