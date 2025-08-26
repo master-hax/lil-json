@@ -2,8 +2,8 @@ use lil_json::{JsonField, JsonObject, JsonValue, InfiniteEscapeBuffer};
 
 fn main() {
     const SERIALIZED_DATA: &[u8] = br#"{"some_string_key":"some_string_value"}"#;
-    let mut infinite_escape_buffer = InfiniteEscapeBuffer::new();
     let mut json_object = JsonObject::wrap(Vec::new());
+    let mut infinite_escape_buffer = InfiniteEscapeBuffer::new();
     // parse_alloc_fields is enabled by using wrapping a Vec. It can support unlimited object fields.
     let bytes_consumed = json_object.parse_alloc(
         SERIALIZED_DATA,

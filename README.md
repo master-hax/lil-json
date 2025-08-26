@@ -23,7 +23,7 @@ fn main() {
 // output: {"some_number":12345,"some_string":"hello world!","some_boolean":true}
 ```
 
-Here is an example of parsing a JSON object from a slice
+Here is an example of parsing a JSON object
 ```rust
 use lil_json::{ArrayJsonObject, JsonField, JsonValue};
 
@@ -42,7 +42,27 @@ fn main() {
 
 ```
 
-Still a work in progress. Expect bugs & breaking API changes. Check out the examples to get started.
+Here is an example of parsing a JSON object with the alloc feature enabled - no need to pre-allocate space for the fields or escaped strings:
+```rust
+use lil_json::{JsonField, JsonObject, JsonValue, InfiniteEscapeBuffer};
+
+fn main() {
+    const SERIALIZED_DATA: &[u8] = br#"{"some_string_key":"some_string_value"}"#;
+    let mut json_object = JsonObject::wrap(Vec::new());
+    // parse_alloc_fields is enabled by using wrapping a Vec. It can support unlimited object fields.
+    let mut infinite_escape_buffer = InfiniteEscapeBuffer::new();
+    let bytes_consumed = json_object.parse_alloc(
+        SERIALIZED_DATA,
+        &mut infinite_escape_buffer,
+    ).unwrap();
+    assert_eq!(SERIALIZED_DATA.len(), bytes_consumed);
+    let parsed_fields = json_object.fields();
+    assert_eq!(1, parsed_fields.len());
+    assert_eq!(JsonField::new("some_string_key", JsonValue::String("some_string_value")), parsed_fields[0]);
+}
+```
+
+Check out the examples for more. Still a work in progress. Expect bugs & breaking API changes. Check out the examples to get started.
 
 the following types are currently supported:
 * objects (currently limited to non-nested types)

@@ -7,9 +7,9 @@ use numtoa::base10;
 #[cfg(feature = "alloc")]
 extern crate elsa;
 #[cfg(feature = "alloc")]
-pub use elsa::FrozenVec;
+use elsa::FrozenVec;
 
-/// (re-export of `esla::FrozenVec<String>`)
+/// (re-export of `esla::FrozenVec<String>`) a buffer for infinite string escaping. enabled with `alloc` feature.
 #[cfg(feature = "alloc")]
 pub type InfiniteEscapeBuffer = FrozenVec<String>;
 
@@ -285,8 +285,8 @@ impl<'a,T: FieldBuffer<'a>> PartialEq for JsonObject<T> {
 /// PartialEq for JsonObject is reflexive
 impl<'a,T: FieldBuffer<'a>> Eq for JsonObject<T> {}
 
-/// a default JSON field with static lifetime
-pub const EMPTY_FIELD: JsonField<'static,'static> = JsonField{ key: "", value: JsonValue::Number(0)};
+/// a default JSON field with static lifetime. equivalent to `{"":null}``.
+pub const EMPTY_FIELD: JsonField<'static,'static> = JsonField{ key: "", value: JsonValue::Null};
 
 impl <'a,'b,V: Into<JsonValue<'b>>> From<(&'a str, V)> for JsonField<'a,'b> {
     fn from(tuple: (&'a str, V)) -> Self {
@@ -1114,7 +1114,7 @@ mod alloc {
 
     pub use elsa::FrozenVec;
 
-    use crate::{parse_json_object, ArrayJsonArray, ArrayJsonObject, FieldBufferMut, JsonField, JsonObject, JsonParseFailure, ParseBuffer, StringBuffer};
+    use crate::{parse_json_object, FieldBufferMut, JsonField, JsonObject, JsonParseFailure, ParseBuffer, StringBuffer};
 
     impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
 
