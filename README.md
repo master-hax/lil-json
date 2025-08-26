@@ -81,6 +81,7 @@ TODO:
 - [x] alloc features
 - [x] expose serialization methods for terminal types
 - [x] support arrays
+- [ ] support [arbitrary](https://crates.io/crates/arbitrary) crate
 - [ ] support parsing arbitrary types
 - [ ] support unicode strings
 - [ ] support buffered serialization
