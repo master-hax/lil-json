@@ -2,11 +2,13 @@
 
 lil `#![no_std]` Rust crate to parse & serialize JavaScript Object Notation (JSON). alloc optional. std optional.
 
-JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html) or a `String` (with `alloc` feature enabled). Only 4 dependencies:
+Only 4 dependencies:
 1. [embedded-io](https://crates.io/crates/embedded-io) for `#![no_std]` friendly `Write` trait
 1. [numtoa](https://crates.io/crates/numtoa) for converting numbers into base 10 ascii
 1. [elsa](https://crates.io/crates/elsa) (with `alloc` feature enabled) for implementing an infinite length string escape buffer
 1. [embedded-io-adapters](https://crates.io/crates/embedded-io-adapters) (with `std` feature enabled) for translating `embedded_io::Write` to `std::io::Write`
+
+JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html) or a `String` (with `alloc` feature enabled). Take a look at the [documentation](https://docs.rs/lil-json/latest/lil_json/).
 
 Here is a minimal example of serializing a JSON object to stdout with a one-liner, making use of the `lil-json::FieldBuffer` auto trait, `core::convert::From for JsonValue`, & `core::convert::Into for JsonField`
 ```rust
