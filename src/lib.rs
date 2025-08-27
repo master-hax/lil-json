@@ -80,7 +80,7 @@ impl <'a,T: AsRef<[JsonValue<'a>]>> ValueBuffer<'a> for T {}
 
 
 /// trait for a mutable collection of JSON array values
-pub trait ValueBufferMut<'a>: ValueBuffer<'a> +  AsMut<[JsonField<'a,'a>]> {
+pub trait ValueBufferMut<'a>: ValueBuffer<'a> +  AsMut<[JsonValue<'a>]> {
 
     /// convenience one-liner to call JsonObject::wrap_init on a mutable reference to this type
     fn as_json_array_mut(&mut self) -> JsonArray<&mut Self> {
@@ -89,7 +89,7 @@ pub trait ValueBufferMut<'a>: ValueBuffer<'a> +  AsMut<[JsonField<'a,'a>]> {
 }
 
 /// ValueBufferMut is automatically implemented for all types that implement FieldBuffer + AsMut<[JsonField<'data,'data>]>
-impl <'a,T: ValueBuffer<'a> + AsMut<[JsonField<'a,'a>]>> ValueBufferMut<'a> for T {}
+impl <'a,T: ValueBuffer<'a> + AsMut<[JsonValue<'a>]>> ValueBufferMut<'a> for T {}
 
 
 /// trait for all optionally mutable collection of JSON object fields
@@ -366,6 +366,46 @@ impl <'a,T: ValueBuffer<'a>> JsonArray<T> {
 
 }
 
+impl <'a,T: ValueBufferMut<'a>> JsonArray<T> {
+    
+    /// get a mutable reference to the initialized fields of this JsonObject
+    pub fn values_mut(&mut self) -> &mut [JsonValue<'a>] {
+        self.values.as_mut().split_at_mut(self.num_values).0
+    }
+
+    /// attempt to push a new field - fails if there is not enough space
+    pub fn push<V: Into<JsonValue<'a>>>(&mut self, value: V) -> Result<(),()> {
+        if self.num_values == self.values.as_ref().len(){
+            return Err(());
+        }
+        self.values.as_mut()[self.num_values] = value.into();
+        self.num_values += 1;
+        Ok(())
+    }
+
+    /// attempt to pop an existing value - returns None if there are no initialized values
+    pub fn pop(&mut self) -> Option<JsonValue<'a>> {
+        if self.num_values == 0 {
+            return None;
+        }
+        self.num_values -= 1;
+        Some(core::mem::take(&mut self.values.as_mut()[self.num_values+1]))
+    }
+
+    /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject - returns a tuple of (num bytes consumed, num fields parsed) on success
+    pub fn parse(&mut self, data: &'a [u8], string_escape_buffer: &'a mut [u8]) -> Result<usize,JsonParseFailure> {
+        let (data_end, parsed_fields) = parse_json_array(
+            data,
+            ParseBuffer::Finite(0, self.values.as_mut()),
+            &mut StringBuffer::Finite(0, string_escape_buffer),
+        )?;
+        let new_num_fields = parsed_fields;
+        self.num_values = new_num_fields;
+        Ok(data_end)
+    }
+
+}
+
 impl <'a,T: ValueBuffer<'a>> Display for JsonArray<T> {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         match serialize_json_array(
@@ -555,20 +595,6 @@ impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
         Ok(data_end)
     }
 
-    /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject while allocating space as needed for storing escaped strings
-    /// returns num bytes consumed on success
-    #[cfg(feature = "alloc")]
-    pub fn parse_alloc_escape(&mut self, data: &'a [u8], escape_buffer: &'a FrozenVec<String>) -> Result<usize,JsonParseFailure> {
-        let (data_end, parsed_fields) = parse_json_object(
-            data,
-            ParseBuffer::Finite(0,self.fields.as_mut()),
-            &mut crate::StringBuffer::Infinite(String::new(), escape_buffer)
-        )?;
-        let new_num_fields = parsed_fields;
-        self.num_fields = new_num_fields;
-        Ok(data_end)
-    }
-
 }
 
 impl <'a,T: FieldBufferMut<'a> + Default> JsonObject<T> {
@@ -631,9 +657,9 @@ impl<'a,const N: usize> ArrayJsonObject<'a,N> {
 }
 
 #[cfg(feature = "alloc")]
-extern crate alloc as alloclib;
+extern crate alloc;
 #[cfg(feature = "alloc")]
-use alloclib::{string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 
 /// a buffer that any sized type can be written to. `ParseBuffer::Infinite` is only available with the `alloc` feature enabled.
 pub enum ParseBuffer<'a,T> {
@@ -738,6 +764,80 @@ impl<'a> StringBuffer<'a> {
 }
 
 
+/// the core function that powers parsing in the JsonArray API. It attempts to parse the fields of a json object from the provided data slice into the provided parse buffer.
+/// returns (num bytes consumed,num values parsed) on success
+pub fn parse_json_array<'input_data: 'escaped_data,'escaped_data>(
+    data: &'input_data [u8],
+    mut field_buffer: ParseBuffer<'_,JsonValue<'escaped_data>>,
+    string_escape_buffer: &mut StringBuffer<'escaped_data>,
+) -> Result<(usize,usize),JsonParseFailure> {
+    let mut current_data_index = 0;
+    // let mut current_field_index = 0;
+    let mut map_entry_needs_comma = false;
+    skip_whitespace(&mut current_data_index, data)?;
+    if data[current_data_index] != b'[' {
+        return Err(JsonParseFailure::InvalidStructure);
+    }
+    let _map_start_index = current_data_index;
+    current_data_index += 1;
+    while current_data_index < data.len()  {
+        skip_whitespace(&mut current_data_index, data)?;
+        if data[current_data_index] == b']' {
+            return Ok((current_data_index+1,field_buffer.consume()))
+        } else if map_entry_needs_comma  {
+            if data[current_data_index] != b',' {
+                return Err(JsonParseFailure::InvalidStructure);
+            }
+            current_data_index += 1;
+            map_entry_needs_comma = false;
+        } else {
+            map_entry_needs_comma = true;
+            skip_whitespace(&mut current_data_index, data)?;
+            if data[current_data_index] == b'"' {
+                let unescaped_string_value = unescape_json_string(&mut current_data_index, data, string_escape_buffer)?;
+                field_buffer.write_thing(JsonValue::String(unescaped_string_value))?;
+            } else if data[current_data_index] == b'n' {
+                skip_literal(&mut current_data_index, data, "null", JsonParseFailure::InvalidBooleanField)?;
+                field_buffer.write_thing(JsonValue::Null)?;
+            } else if data[current_data_index] == b't' || data[current_data_index] == b'f' {
+                let expect_true = data[current_data_index] == b't';
+                skip_literal(&mut current_data_index, data, if expect_true { "true" } else { "false"}, JsonParseFailure::InvalidBooleanField)?;
+                field_buffer.write_thing(JsonValue::Boolean(expect_true))?;
+            } else if data[current_data_index] == b'-' {
+                // negative number
+                let minus_sign_numeric_start_index = current_data_index;
+                current_data_index += 1;
+                skip_numeric(&mut current_data_index, data)?;
+                let minus_sign_numeric_end = current_data_index;
+                if minus_sign_numeric_end - minus_sign_numeric_start_index == 1 {
+                    // no digits found
+                    return Err(JsonParseFailure::InvalidNumericField);
+                }
+                let numeric_string = core::str::from_utf8(&data[minus_sign_numeric_start_index..minus_sign_numeric_end]).expect("skipped negative number digit(s)");
+                let numeric_value: i64 = match numeric_string.parse() {
+                    Ok(i) => i,
+                    Err(_parse_int_error) => return Err(JsonParseFailure::NumberParseError),
+                };
+                field_buffer.write_thing(JsonValue::Number(numeric_value))?;
+            } else if data[current_data_index] >= b'0' && data[current_data_index] < b'9' {
+                // positive number
+                let numeric_start_index = current_data_index;
+                current_data_index += 1;
+                skip_numeric(&mut current_data_index, data)?;
+                let numeric_after_index = current_data_index;
+                let numeric_string = core::str::from_utf8(&data[numeric_start_index..numeric_after_index]).expect("skipped positive number digit(s)");
+                let numeric_value: i64 = match numeric_string.parse() {
+                    Ok(i) => i,
+                    Err(_parse_int_error) => return Err(JsonParseFailure::NumberParseError),
+                };
+                field_buffer.write_thing(JsonValue::Number(numeric_value))?;
+            } else {
+                return Err(JsonParseFailure::InvalidStructure);
+            }
+        }
+    }
+    Err(JsonParseFailure::Incomplete)
+}
 
 /// the core function that powers parsing in the JsonObject API. It attempts to parse the fields of a json object from the provided data slice into the provided parse buffer.
 /// returns (num bytes consumed,num fields parsed) on success
@@ -1052,17 +1152,50 @@ fn write_escaped_json_string<T: StringWrite>(output: &mut T, counter: &mut usize
 }
 
 #[cfg(feature = "alloc")]
-mod alloc {
+mod alloclib {
 
-    extern crate alloc as alloclib;
+    extern crate alloc;
     
 
-    use alloclib::string::String;
-    use alloclib::vec::Vec;
+    use alloc::string::String;
+    use alloc::vec::Vec;
 
-    pub use elsa::FrozenVec;
+    use crate::{parse_json_object, AllocEscapeBuffer, FieldBufferMut, JsonArray, JsonField, JsonObject, JsonParseFailure, ParseBuffer, StringBuffer, ValueBufferMut};
 
-    use crate::{parse_json_object, JsonField, JsonObject, JsonParseFailure, ParseBuffer, StringBuffer};
+    impl <'a,T: ValueBufferMut<'a>> JsonArray<T> {
+
+        // TODO
+        // /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject while allocating space as needed for storing escaped strings
+        // /// returns num bytes consumed on success
+        // pub fn parse_alloc_escape(&mut self, data: &'a [u8], escape_buffer: &'a FrozenVec<String>) -> Result<usize,JsonParseFailure> {
+        //     let (data_end, parsed_fields) = parse_json_object(
+        //         data,
+        //         ParseBuffer::Finite(0,self.values.as_mut()),
+        //         &mut crate::StringBuffer::Infinite(String::new(), escape_buffer)
+        //     )?;
+        //     let new_num_fields = parsed_fields;
+        //     self.num_fields = new_num_fields;
+        //     Ok(data_end)
+        // }
+
+    }
+
+    impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
+
+        /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject while allocating space as needed for storing escaped strings
+        /// returns num bytes consumed on success
+        pub fn parse_alloc_escape(&mut self, data: &'a [u8], escape_buffer: &'a AllocEscapeBuffer) -> Result<usize,JsonParseFailure> {
+            let (data_end, parsed_fields) = parse_json_object(
+                data,
+                ParseBuffer::Finite(0,self.fields.as_mut()),
+                &mut crate::StringBuffer::Infinite(String::new(), escape_buffer)
+            )?;
+            let new_num_fields = parsed_fields;
+            self.num_fields = new_num_fields;
+            Ok(data_end)
+        }
+
+    }
 
     impl <'a, T: AsMut<Vec<JsonField<'a,'a>>>> JsonObject<T> {
 
@@ -1081,7 +1214,7 @@ mod alloc {
 
         /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject while allocating space as needed for storing parsed fields & escaped strings
         /// returns num bytes consumed on success
-        pub fn parse_alloc(&mut self, data: &'a [u8], escape_buffer: &'a FrozenVec<String>) -> Result<usize,JsonParseFailure> {
+        pub fn parse_alloc(&mut self, data: &'a [u8], escape_buffer: &'a AllocEscapeBuffer) -> Result<usize,JsonParseFailure> {
             let (data_end, parsed_fields) = parse_json_object(
                 data,
                 ParseBuffer::Infinite(0, self.fields.as_mut()),
@@ -1117,7 +1250,7 @@ mod test_alloc {
 
     extern crate alloc;
     use alloc::vec::Vec;
-    use alloclib::string::ToString;
+    use alloc::string::ToString;
 
     #[test]
     fn test_parse_core_vec_no_alloc_too_many_fields() {
@@ -1236,8 +1369,28 @@ mod test_core {
     }
 
     #[test]
+    fn test_parse_array_empty_core() {
+        let mut escape_buffer = [0_u8; 0];
+        let (bytes_consumed,num_values) = parse_json_array(
+            b"[]",
+            ParseBuffer::Finite(0,&mut []),
+            &mut StringBuffer::Finite(0, &mut escape_buffer),
+        ).unwrap();
+        assert_eq!(bytes_consumed, 2);
+        assert_eq!(num_values, 0);
+    }
+
+    #[test]
+    fn test_parse_array_empty_trait_array() {
+        let mut parser = JsonArray::wrap([]);
+        let bytes_consumed = parser.parse(b"[]", &mut []).unwrap();
+        assert_eq!(bytes_consumed, 2);
+        assert_eq!(parser.len(), 0);
+    }
+
+    #[test]
     fn test_parse_object_empty_core() {
-        let mut escape_buffer = [0_u8; 256];
+        let mut escape_buffer = [0_u8; 0];
         let (bytes_consumed,num_fields) = parse_json_object(
             b"{}",
             ParseBuffer::Finite(0,&mut []),
@@ -1406,7 +1559,19 @@ mod test_core {
         buffer.as_mut_slice().write_fmt(format_args!("{}", ArrayJsonArray::<0>::new())).unwrap();
         assert_eq!(b"[]", buffer.as_slice())
     }
-
+    
+    #[test]
+    fn test_serialize_array_simple() {
+        let mut buffer = [0_u8; 1000];
+        let mut test_map = ArrayJsonArray::<4>::new();
+        test_map.push(JsonValue::String("hello world")).unwrap();
+        test_map.push(JsonValue::Number(1516239022)).unwrap();
+        test_map.push(JsonValue::Boolean(false)).unwrap();
+        test_map.push(JsonValue::Null).unwrap();
+        let n = test_map.serialize(buffer.as_mut_slice()).unwrap();
+        assert_eq!(br#"["hello world",1516239022,false,null]"#, buffer.split_at(n).0)
+    }
+    
     #[test]
     fn test_serialize_object_empty() {
         let mut buffer = [0_u8; 2];
