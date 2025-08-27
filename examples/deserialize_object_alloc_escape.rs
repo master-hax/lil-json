@@ -1,9 +1,9 @@
-use lil_json::{ArrayJsonObject, InfiniteEscapeBuffer, JsonField, JsonValue};
+use lil_json::{ArrayJsonObject, AllocEscapeBuffer, JsonField, JsonValue};
 
 fn main() {
     const SERIALIZED_DATA: &[u8] = br#"{"some_string_key":"some_string_value"}"#;
 
-    let mut infinite_escape_buffer = InfiniteEscapeBuffer::new();
+    let mut infinite_escape_buffer = AllocEscapeBuffer::new();
     let mut json_object = ArrayJsonObject::<1>::new();
     // parse_alloc_escape uses an infinite string escape buffer
     let bytes_consumed = json_object.parse_alloc_escape(

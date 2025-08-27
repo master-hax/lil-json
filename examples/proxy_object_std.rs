@@ -46,7 +46,10 @@ fn proxy_json_object<Input: Read, Output: Write, Logs: Write>(mut input: Input, 
                         log_output.write_fmt(format_args!("read {} bytes, parsed a json object in {} bytes with {} fields\n", read_buffer_end, bytes_consumed, json_object.len())).unwrap();
                         log_output.flush().unwrap();
                         json_object.serialize(&mut output).expect("failed to write to output");
-                        break;
+                        output.flush().unwrap();
+                        read_buffer.rotate_left(bytes_consumed);
+                        read_buffer_end -= bytes_consumed;
+                        // exit(0)
                     },
                 }
             },
