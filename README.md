@@ -78,6 +78,7 @@ the following types are not currently supported:
 
 TODO:
 - [x] support null type
+- [ ] support floating point numbers
 - [x] alloc features
 - [x] expose serialization methods for terminal types
 - [x] support arrays

@@ -888,37 +888,6 @@ fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped:
             escaped.write_part(&encoded)?;
             *index += 1;
         }
-        // else if '\\' as u8 == current_char {
-        //     if current_char_escaped {
-        //         escaped.write_part("\\")?;
-        //         current_char_escaped = false;
-        //     } else {
-        //         current_char_escaped = true;
-        //     }
-        // } else if '"' as u8 == current_char {
-        //     if current_char_escaped {
-        //         escaped.write_part(r#"""#)?;
-        //         current_char_escaped = false;
-        //     } else {
-        //         *index += 1;
-        //         return Ok(escaped.consume_string());
-        //     }
-        // } else if let Some(escape_sequence) = escape_char(current_char as char) {
-        //     if !current_char_escaped {
-        //         return Err(JsonParseFailure::InvalidStringField);
-        //     }
-        //     let mut char_buffer = [0_u8; 4];
-        //     let char_as_str = (current_char as char).encode_utf8(&mut char_buffer);
-        //     escaped.write_part(char_as_str)?;
-        //     *index += char_as_str.len();
-        //     current_char_escaped = false;
-        // } else {
-        //     let mut char_buffer = [0_u8; 4];
-        //     let char_as_str = (current_char as char).encode_utf8(&mut char_buffer);
-        //     escaped.write_part(char_as_str)?;
-        //     *index += char_as_str.len();
-        //     current_char_escaped = false;
-        // }
     }
     Err(JsonParseFailure::Incomplete)
 }
@@ -1072,9 +1041,7 @@ fn tracked_write<T: StringWrite>(output: &mut T, counter: &mut usize, resume_fro
 fn write_escaped_json_string<T: StringWrite>(output: &mut T, counter: &mut usize, resume_from: &usize, data: &str) -> Result<(), (usize,T::StringWriteFailure)> {
     tracked_write(output, counter, resume_from, "\"")?;
     for field_character in data.chars() {
-        if !field_character.is_ascii() {
-            continue;
-        } else if let Some(escape_sequence) = get_required_escape_sequence(field_character) {
+        if let Some(escape_sequence) = get_required_escape_sequence(field_character) {
             tracked_write(output, counter, resume_from, escape_sequence)?;
         } else {
             tracked_write(output, counter, resume_from, field_character.encode_utf8(&mut [0_u8; 4]))?;
