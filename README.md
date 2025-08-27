@@ -83,8 +83,9 @@ TODO:
 - [x] support arrays
 - [ ] support [arbitrary](https://crates.io/crates/arbitrary) crate
 - [ ] support parsing arbitrary types
-- [ ] support unicode strings
+- [ ] support unicode escape sequences
 - [ ] support buffered serialization
 - [ ] support parsing from stream
 - [ ] support parsing streaming objects/arrays
+- [ ] support escaping user-configurable unicode characters
 - [ ] support embedded-io-async?
