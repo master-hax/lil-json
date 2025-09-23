@@ -90,3 +90,5 @@ TODO:
 - [ ] support parsing streaming objects/arrays
 - [ ] support escaping user-configurable unicode characters
 - [ ] support embedded-io-async?
+- [ ] support Cow<
+- [ ] add cool gif to README
