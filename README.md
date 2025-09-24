@@ -68,13 +68,11 @@ Check out the examples for more. Still a work in progress. Expect bugs & breakin
 
 the following types are currently supported:
 * objects (currently limited to non-nested types)
+* arrays (currently limited to non-nested types)
 * string (currently limited to ascii-)
 * boolean
 * null
 * number (currently limited to integers)
-
-the following types are not currently supported:
-* arrays (currently limited to non-nested types)
 
 TODO:
 - [x] support null type
