@@ -930,20 +930,49 @@ pub fn parse_json_object<'input_data: 'escaped_data,'escaped_data>(
 }
 
 const fn get_required_escape_sequence(c: char) -> Option<&'static str> {
+    // TODO: optionally escape solidus
     Some(match c {
+        // control characters (U+0000 through U+001F), quotation mark, & reverse solidus must be escaped
+        // https://datatracker.ietf.org/doc/html/rfc8259#section-7
         '"' => r#"\""#, // quotation mark
         '\\' => r#"\\"#, // reverse solidus
-        '/' => r#"\/"#, // solidus
-        '\u{0008}' =>  r#"\b"#, // backspace
-        '\u{000C}' =>  r#"\f"#, // form feed
-        '\n' =>  r#"\n"#, // line feed
-        '\r' => r#"\r"#, // carriage return
-        '\t' => r#"\t"#, // character tabulation
+        '\u{0000}' => r#"\u0000"#, // null
+        '\u{0001}' => r#"\u0001"#, // start of heading
+        '\u{0002}' => r#"\u0002"#, // start of text
+        '\u{0003}' => r#"\u0003"#, // end of text
+        '\u{0004}' => r#"\u0004"#, // end of transmission
+        '\u{0005}' => r#"\u0005"#, // enquiry
+        '\u{0006}' => r#"\u0006"#, // acknowledge
+        '\u{0007}' => r#"\u0007"#, // bell
+        '\u{0008}' => r#"\b"#,     // backspace
+        '\u{0009}' => r#"\t"#,     // horizontal tab
+        '\u{000A}' => r#"\n"#,     // line feed
+        '\u{000B}' => r#"\u000B"#, // vertical tab
+        '\u{000C}' => r#"\f"#,     // form feed
+        '\u{000D}' => r#"\r"#,     // carriage return
+        '\u{000E}' => r#"\u000E"#, // shift out
+        '\u{000F}' => r#"\u000F"#, // shift in
+        '\u{0010}' => r#"\u0010"#, // data link escape
+        '\u{0011}' => r#"\u0011"#, // device control 1
+        '\u{0012}' => r#"\u0012"#, // device control 2
+        '\u{0013}' => r#"\u0013"#, // device control 3
+        '\u{0014}' => r#"\u0014"#, // device control 4
+        '\u{0015}' => r#"\u0015"#, // negative acknowledge
+        '\u{0016}' => r#"\u0016"#, // synchronous idle
+        '\u{0017}' => r#"\u0017"#, // end of transmission block
+        '\u{0018}' => r#"\u0018"#, // cancel
+        '\u{0019}' => r#"\u0019"#, // end of medium
+        '\u{001A}' => r#"\u001A"#, // substitute
+        '\u{001B}' => r#"\u001B"#, // escape
+        '\u{001C}' => r#"\u001C"#, // file separator
+        '\u{001D}' => r#"\u001D"#, // group separator
+        '\u{001E}' => r#"\u001E"#, // record separator
+        '\u{001F}' => r#"\u001F"#, // unit separator
         _ => return None,
     })
 }
 
-const fn get_required_unescaped_char(c: char) -> Option<char> {
+const fn unescape_character(c: char) -> Option<char> {
     Some(match c {
         '"' => '"', // quotation mark
         '\\' => '\\', // reverse solidus
@@ -969,7 +998,7 @@ fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped:
         if !current_char.is_ascii() {
             return Err(JsonParseFailure::InvalidStringField);
         } else if current_char_escaped {
-            if let Some(unescaped_char) = get_required_unescaped_char(current_char as char) {
+            if let Some(unescaped_char) = unescape_character(current_char as char) {
                 let encoded = unescaped_char.encode_utf8(&mut encoding_buffer);
                 escaped.write_part(&encoded)?;
                 *index += 1;
