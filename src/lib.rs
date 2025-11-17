@@ -989,15 +989,11 @@ const fn unescape_two_character(c: char) -> Option<char> {
     })
 }
 
-const fn parse_hex_digit(c: Option<char>, missing_is_invalid: bool) -> Result<u8,JsonParseFailure> {
+const fn require_hex_digit(c: Option<char>, missing_error: JsonParseFailure) -> Result<u8,JsonParseFailure> {
     let ch = match c {
         Some(d) => d,
         None => {
-            if missing_is_invalid {
-                return Err(JsonParseFailure::InvalidStringField);
-            } else {
-                return Err(JsonParseFailure::Incomplete);
-            }
+            return Err(missing_error);
         },
     };
     let ret = if ch >= '0' && ch <= '9' {
@@ -1012,14 +1008,28 @@ const fn parse_hex_digit(c: Option<char>, missing_is_invalid: bool) -> Result<u8
     Ok(ret)
 }
 
-fn unescape_four_hex_digits(data: &mut Chars<'_>, followed_by_invalid_data: bool) -> Result<u16,JsonParseFailure> {
-    let hex_val_one = parse_hex_digit(data.next(), followed_by_invalid_data)?;
-    let hex_val_two = parse_hex_digit(data.next(), followed_by_invalid_data)?;
-    let hex_val_three = parse_hex_digit(data.next(), followed_by_invalid_data)?;
-    let hex_val_four = parse_hex_digit(data.next(), followed_by_invalid_data)?;
-    // let ret = ((hex_char_one as u16) << 12) | ((hex_char_two as u16) << 8) | ((hex_char_three as u16) << 4) | (hex_char_four as u16);
-    let ret = hex_val_one as u16 * 0x1000 + hex_val_two as u16 * 0x100 + hex_val_three as u16 * 0x10 + hex_val_four as u16;
+fn require_hex_escape_sequence(data: &mut Chars<'_>, missing_error: JsonParseFailure) -> Result<u16,JsonParseFailure> {
+    let mut ret: u16 = 0;
+    for _ in 0..4 {
+        ret = (ret << 4) | (require_hex_digit(data.next(), missing_error)? as u16);
+    }
     Ok(ret)
+}
+
+fn require_character<const EXPECTED_CHAR: char>(
+    data: &mut Chars<'_>,
+    not_found_result: JsonParseFailure
+) -> Result<(),JsonParseFailure> {
+    match data.next() {
+        Some(c) => {
+            if c == EXPECTED_CHAR {
+                Ok(())
+            } else {
+                Err(JsonParseFailure::InvalidStringField)
+            }
+        },
+        None => Err(not_found_result),
+    }
 }
 
 fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped: &mut StringBuffer<'escaped>) -> Result<&'escaped str,JsonParseFailure> {
@@ -1036,8 +1046,10 @@ fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped:
     for chunk in chunk_iterator {
         // let next_valid_chunk = chunk.valid();
         let mut valid_character_iterator = chunk.valid().chars().into_iter();
+        let followed_by_invalid_data = !chunk.invalid().is_empty();
+        let incomplete_error = JsonParseFailure::Incomplete;
+
         while let Some(next_character) = valid_character_iterator.next() {
-        // for next_character in next_valid_chunk.chars() {
             string_bytes_consumed += next_character.len_utf8();
             if last_character_was_escape {
                 last_character_was_escape = false;
@@ -1047,50 +1059,29 @@ fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped:
                     return Err(JsonParseFailure::InvalidStringField);
                 } else {
 
-                    // parse 4 hex digits
-                    // TODO: support unicode hex digit escape sequences
-                    let hex_value = unescape_four_hex_digits(&mut valid_character_iterator, chunk.invalid().is_empty())?;
+                    let hex_value = require_hex_escape_sequence(&mut valid_character_iterator, incomplete_error)?;
                     string_bytes_consumed += 4; // account for 4 hex digits
                     if !UNICODE_HIGH_SURROGATE_RANGE.contains(&hex_value) {
+                        // normal single unicode escape sequence
                         let unescaped_character = match char::from_u32(hex_value as u32) {
                             Some(c) => c,
                             None => return Err(JsonParseFailure::InvalidStringField),
                         };
                         escaped.write_part(unescaped_character.encode_utf8(&mut encoding_buffer))?;
                     } else {
+                        // surrogate pair of escape sequences - expect another \uXXXX sequence
+                        require_character::<'\\'>(
+                            &mut valid_character_iterator,
+                            incomplete_error,
+                        )?;
+                        string_bytes_consumed += 1;
+                        require_character::<'u'>(
+                            &mut valid_character_iterator,
+                            incomplete_error,
+                        )?;
+                        string_bytes_consumed += 1;
 
-                        match valid_character_iterator.next() {
-                            Some('\\') => {
-                                string_bytes_consumed += 1; // account for backslash
-                            },
-                            Some(_unexpected_char) => {
-                                return Err(JsonParseFailure::InvalidStringField);
-                            },
-                            None => {
-                                if chunk.invalid().is_empty() {
-                                    return Err(JsonParseFailure::InvalidStringField);
-                                } else {
-                                    return Err(JsonParseFailure::Incomplete);
-                                }
-                            },
-                        }
-                        match valid_character_iterator.next() {
-                            Some('u') => {
-                                string_bytes_consumed += 1; // account for u
-                            },
-                            Some(_unexpected_char) => {
-                                return Err(JsonParseFailure::InvalidStringField);
-                            },
-                            None => {
-                                if chunk.invalid().is_empty() {
-                                    return Err(JsonParseFailure::InvalidStringField);
-                                } else {
-                                    return Err(JsonParseFailure::Incomplete);
-                                }
-                            },
-                        }
-
-                        let second_hex_value = unescape_four_hex_digits(&mut valid_character_iterator, chunk.invalid().is_empty())?;
+                        let second_hex_value = require_hex_escape_sequence(&mut valid_character_iterator, incomplete_error)?;
                         string_bytes_consumed += 4; // account for 4 hex digits
                         if !UNICODE_LOW_SURROGATE_RANGE.contains(&second_hex_value) {
                             return Err(JsonParseFailure::InvalidStringField);
@@ -1116,8 +1107,7 @@ fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped:
             }
         }
 
-        if !chunk.invalid().is_empty() {
-            // TODO: update index for error case?
+        if followed_by_invalid_data {
             return Err(JsonParseFailure::InvalidStringField);
         }
     }
