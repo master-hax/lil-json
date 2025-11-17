@@ -972,7 +972,7 @@ const fn get_required_escape_sequence(c: char) -> Option<&'static str> {
     })
 }
 
-const fn unescape_character(c: char) -> Option<char> {
+const fn unescape_two_character(c: char) -> Option<char> {
     Some(match c {
         '"' => '"', // quotation mark
         '\\' => '\\', // reverse solidus
@@ -990,32 +990,41 @@ fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped:
     if data[*index] != b'\"' {
         return Err(JsonParseFailure::InvalidStringField);
     }
-    *index += 1;
-    let mut current_char_escaped = false;
+    let remaining_data = data.split_at(*index+1).1;
+    let chunk_iterator = remaining_data.utf8_chunks();
+
     let mut encoding_buffer = [0_u8; 4];
-    while *index < data.len() {
-        let current_char = data[*index];
-        if !current_char.is_ascii() {
-            return Err(JsonParseFailure::InvalidStringField);
-        } else if current_char_escaped {
-            if let Some(unescaped_char) = unescape_character(current_char as char) {
-                let encoded = unescaped_char.encode_utf8(&mut encoding_buffer);
-                escaped.write_part(&encoded)?;
-                *index += 1;
-                current_char_escaped = false;
+    let mut string_bytes_consumed = '\"'.len_utf8(); // account for starting quote
+    let mut last_character_was_escape = false;
+
+    for chunk in chunk_iterator {
+        let next_valid_chunk = chunk.valid();
+        for next_character in next_valid_chunk.chars() {
+            string_bytes_consumed += next_character.len_utf8();
+            if last_character_was_escape {
+                last_character_was_escape = false;
+                if let Some(unescaped_char) = unescape_two_character(next_character) {
+                    escaped.write_part(unescaped_char.encode_utf8(&mut encoding_buffer))?;
+                } else if next_character != 'u' {
+                    // TODO: update index for error case?
+                    return Err(JsonParseFailure::InvalidStringField);
+                } else {
+                    // TODO: support unicode hex digit escape sequences
+                    return Err(JsonParseFailure::InvalidStringField);
+                }
+            } else if next_character == '"' {
+                *index += string_bytes_consumed;
+                return Ok(escaped.consume_string());
+            } else if next_character == '\\' {
+                last_character_was_escape = true;
             } else {
-                return Err(JsonParseFailure::InvalidStringField);
+                escaped.write_part(next_character.encode_utf8(&mut encoding_buffer))?;
             }
-        } else if current_char == '\\' as u8 {
-            current_char_escaped = true;
-            *index += 1;
-        } else if current_char == '"' as u8 {
-            *index += 1;
-            return Ok(escaped.consume_string());
-        } else {
-            let encoded = (current_char as char).encode_utf8(&mut encoding_buffer);
-            escaped.write_part(&encoded)?;
-            *index += 1;
+        }
+
+        if !chunk.invalid().is_empty() {
+            // TODO: update index for error case?
+            return Err(JsonParseFailure::InvalidStringField);
         }
     }
     Err(JsonParseFailure::Incomplete)
@@ -1349,7 +1358,24 @@ mod test_core {
     use super::*;
 
     #[test]
-    fn test_parse_value_string() {
+    fn test_parse_value_string_empty() {
+        let data = br#""""#;
+        match JsonValue::parse(data, &mut [0_u8; 0]) {
+            Ok((bytes_consumed,value)) => {
+                assert_eq!(data.len(),bytes_consumed);
+                match value {
+                    JsonValue::String(s) => {
+                        assert_eq!("", s);
+                    },
+                    other => panic!("{:?}", other),
+                }
+            },
+            other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_simple() {
         let data = br#""this is a string""#;
         match JsonValue::parse(data, &mut [0_u8; 16]) {
             Ok((value_end,value)) => {
@@ -1357,6 +1383,40 @@ mod test_core {
                 match value {
                     JsonValue::String(s) => {
                         assert_eq!("this is a string", s);
+                    },
+                    other => panic!("{:?}", other),
+                }
+            },
+            other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_unicode() {
+        let data = "\"𝄞\"";
+        match JsonValue::parse(data.as_bytes(), &mut [0_u8; 16]) {
+            Ok((value_end,value)) => {
+                assert_eq!(data.len(),value_end);
+                match value {
+                    JsonValue::String(s) => {
+                        assert_eq!("𝄞", s);
+                    },
+                    other => panic!("{:?}", other),
+                }
+            },
+            other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_consumed_bytes() {
+        let data = br#""hello" "#; // add a space at the end
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Ok((value_end,value)) => {
+                assert_eq!(data.len()-1,value_end);
+                match value {
+                    JsonValue::String(s) => {
+                        assert_eq!("hello", s);
                     },
                     other => panic!("{:?}", other),
                 }

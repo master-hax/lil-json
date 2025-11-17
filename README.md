@@ -69,20 +69,21 @@ Check out the examples for more. Still a work in progress. Expect bugs & breakin
 the following types are currently supported:
 * objects (currently limited to non-nested types)
 * arrays (currently limited to non-nested types)
-* string (currently limited to ascii-)
+* strings
 * boolean
 * null
 * number (currently limited to integers)
 
 TODO:
 - [x] support null type
+- [x] support full unicode strings
 - [ ] support floating point numbers
 - [x] alloc features
 - [x] expose serialization methods for terminal types
 - [x] support arrays
 - [ ] support [arbitrary](https://crates.io/crates/arbitrary) crate
 - [ ] support parsing arbitrary types
-- [ ] support unicode escape sequences
+- [ ] support hex digit escape sequences
 - [ ] support buffered serialization
 - [ ] support parsing from stream
 - [ ] support parsing streaming objects/arrays
