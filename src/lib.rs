@@ -1017,6 +1017,10 @@ fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped:
                 return Ok(escaped.consume_string());
             } else if next_character == '\\' {
                 last_character_was_escape = true;
+            } else if get_required_escape_sequence(next_character).is_some() {
+                // invalid character that should have been escaped
+                // TODO: update index for error case?
+                return Err(JsonParseFailure::InvalidStringField);
             } else {
                 escaped.write_part(next_character.encode_utf8(&mut encoding_buffer))?;
             }
@@ -1409,11 +1413,11 @@ mod test_core {
     }
 
     #[test]
-    fn test_parse_value_string_consumed_bytes() {
-        let data = br#""hello" "#; // add a space at the end
+    fn test_parse_value_string_ignore_trailing_whitespace() {
+        let data = br#""hello"  "#; // add 2 spaces at the end
         match JsonValue::parse(data, &mut [0_u8; 16]) {
             Ok((value_end,value)) => {
-                assert_eq!(data.len()-1,value_end);
+                assert_eq!(data.len()-2,value_end);
                 match value {
                     JsonValue::String(s) => {
                         assert_eq!("hello", s);
@@ -1422,6 +1426,20 @@ mod test_core {
                 }
             },
             other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_failure_unescaped_newline() {
+        let data = "\"\n\"";
+        match JsonValue::parse(data.as_bytes(), &mut [0_u8; 16]) {
+            Err(JsonParseFailure::InvalidStringField) => {},
+            Err(other) => {
+                panic!("unexpected error: {:?}", other);
+            },
+            Ok((value_end,value)) => {
+                panic!("unexpected success: {} {:?}", value_end, value);
+            },
         }
     }
 
