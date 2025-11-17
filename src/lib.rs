@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::{fmt::{Debug, Display, Formatter, Write as CoreFmtWrite}, result, str::Chars};
+use core::{fmt::{Debug, Display, Formatter, Write as CoreFmtWrite}, str::Chars};
 use embedded_io::{ErrorType, Write};
 use numtoa::base10;
 
