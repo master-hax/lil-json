@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::fmt::{Debug, Display, Formatter, Write as CoreFmtWrite};
+use core::{fmt::{Debug, Display, Formatter, Write as CoreFmtWrite}, result, str::Chars};
 use embedded_io::{ErrorType, Write};
 use numtoa::base10;
 
@@ -986,6 +986,32 @@ const fn unescape_two_character(c: char) -> Option<char> {
     })
 }
 
+const fn parse_hex_digit(c: Option<char>, missing_is_invalid: bool) -> Result<u8,JsonParseFailure> {
+    match c {
+        Some(d) if d >= '0' && d <= '9' => Ok((d as u8) - b'0'),
+        Some(d) if d >= 'a' && d <= 'f' => Ok((d as u8) - b'a' + 10),
+        Some(d) if d >= 'A' && d <= 'F' => Ok((d as u8) - b'A' + 10),
+        Some(_) => Err(JsonParseFailure::InvalidStringField),
+        None => {
+            if missing_is_invalid {
+                Err(JsonParseFailure::InvalidStringField)
+            } else {
+                Err(JsonParseFailure::Incomplete)
+            }
+        },
+    }
+}
+
+fn unescape_four_hex_digits(data: &mut Chars<'_>, followed_by_invalid_data: bool) -> Result<u16,JsonParseFailure> {
+    let hex_val_one = parse_hex_digit(data.next(), followed_by_invalid_data)?;
+    let hex_val_two = parse_hex_digit(data.next(), followed_by_invalid_data)?;
+    let hex_val_three = parse_hex_digit(data.next(), followed_by_invalid_data)?;
+    let hex_val_four = parse_hex_digit(data.next(), followed_by_invalid_data)?;
+    // let ret = ((hex_char_one as u16) << 12) | ((hex_char_two as u16) << 8) | ((hex_char_three as u16) << 4) | (hex_char_four as u16);
+    let ret = hex_val_one as u16 * 0x1000 + hex_val_two as u16 * 0x100 + hex_val_three as u16 * 0x10 + hex_val_four as u16;
+    Ok(ret)
+}
+
 fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped: &mut StringBuffer<'escaped>) -> Result<&'escaped str,JsonParseFailure> {
     if data[*index] != b'\"' {
         return Err(JsonParseFailure::InvalidStringField);
@@ -996,21 +1022,30 @@ fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped:
     let mut encoding_buffer = [0_u8; 4];
     let mut string_bytes_consumed = '\"'.len_utf8(); // account for starting quote
     let mut last_character_was_escape = false;
-
+    // while let Some(chunk) = chunk_iterator.next() {
     for chunk in chunk_iterator {
-        let next_valid_chunk = chunk.valid();
-        for next_character in next_valid_chunk.chars() {
+        // let next_valid_chunk = chunk.valid();
+        let mut valid_character_iterator = chunk.valid().chars().into_iter();
+        while let Some(next_character) = valid_character_iterator.next() {
+        // for next_character in next_valid_chunk.chars() {
             string_bytes_consumed += next_character.len_utf8();
             if last_character_was_escape {
                 last_character_was_escape = false;
                 if let Some(unescaped_char) = unescape_two_character(next_character) {
                     escaped.write_part(unescaped_char.encode_utf8(&mut encoding_buffer))?;
                 } else if next_character != 'u' {
-                    // TODO: update index for error case?
                     return Err(JsonParseFailure::InvalidStringField);
                 } else {
+                    // parse 4 hex digits
                     // TODO: support unicode hex digit escape sequences
-                    return Err(JsonParseFailure::InvalidStringField);
+                    let hex_value = unescape_four_hex_digits(&mut valid_character_iterator, chunk.invalid().is_empty())?;
+                    string_bytes_consumed += 4; // account for 4 hex digits
+                    let unescaped_character = match char::from_u32(hex_value as u32) {
+                        Some(c) => c,
+                        None => panic!("bad unescaped char: {:?}", hex_value),
+                    };
+                    escaped.write_part(unescaped_character.encode_utf8(&mut encoding_buffer))?;
+                    // return Err(JsonParseFailure::InvalidStringField);
                 }
             } else if next_character == '"' {
                 *index += string_bytes_consumed;
@@ -1018,6 +1053,8 @@ fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped:
             } else if next_character == '\\' {
                 last_character_was_escape = true;
             } else if get_required_escape_sequence(next_character).is_some() {
+
+
                 // invalid character that should have been escaped
                 // TODO: update index for error case?
                 return Err(JsonParseFailure::InvalidStringField);
@@ -1396,7 +1433,7 @@ mod test_core {
     }
 
     #[test]
-    fn test_parse_value_string_unicode() {
+    fn test_parse_value_string_unicode_raw_g_clef() {
         let data = "\"𝄞\"";
         match JsonValue::parse(data.as_bytes(), &mut [0_u8; 16]) {
             Ok((value_end,value)) => {
@@ -1404,6 +1441,40 @@ mod test_core {
                 match value {
                     JsonValue::String(s) => {
                         assert_eq!("𝄞", s);
+                    },
+                    other => panic!("{:?}", other),
+                }
+            },
+            other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_unicode_escaped_hex_digits_single() {
+        let data = br#""\u0032""#;
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Ok((value_end,value)) => {
+                assert_eq!(data.len(),value_end);
+                match value {
+                    JsonValue::String(s) => {
+                        assert_eq!("2", s);
+                    },
+                    other => panic!("{:?}", other),
+                }
+            },
+            other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_unicode_escaped_hex_digits_multiple() {
+        let data = br#""\u0032\u0033\u0034""#;
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Ok((value_end,value)) => {
+                assert_eq!(data.len(),value_end);
+                match value {
+                    JsonValue::String(s) => {
+                        assert_eq!("234", s);
                     },
                     other => panic!("{:?}", other),
                 }
