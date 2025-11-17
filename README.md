@@ -3,12 +3,12 @@
 lil `#![no_std]` Rust crate to parse & serialize JavaScript Object Notation (JSON). alloc optional. std optional.
 
 only 2 required dependencies + 2 optional dependencies:
-1. [embedded-io](https://crates.io/crates/embedded-io) (required) for `#![no_std]` friendly `Write` trait
-1. [numtoa](https://crates.io/crates/numtoa) (required) for converting numbers into base 10 ascii
+1. [embedded-io](https://crates.io/crates/embedded-io) for `#![no_std]` friendly `Write` trait
+1. [numtoa](https://crates.io/crates/numtoa) for converting numbers into base 10 ascii
 1. [elsa](https://crates.io/crates/elsa) (optional with `alloc` feature enabled) for implementing an infinite length string escape buffer
 1. [embedded-io-adapters](https://crates.io/crates/embedded-io-adapters) (optional with `std` feature enabled) for translating `embedded_io::Write` to `std::io::Write`
 
-JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html) or a `String` (with `alloc` feature enabled). Take a look at the [documentation](https://docs.rs/lil-json/latest/lil_json/).
+JSON can be serialized into any type that implements [`embedded_io::Write`](https://docs.rs/embedded-io/latest/embedded_io/trait.Write.html) or a `String` (with `alloc` feature enabled). Take a look at the [documentation](https://docs.rs/lil-json/latest/lil_json/). Note that nested objects and arrays are not currently supported.
 
 Here is a minimal example of printing JSON object to stdout with a one-liner (making use of `lil-json::FieldBuffer`, `core::convert::From for JsonValue`, & `core::convert::Into for JsonField`):
 ```rust
@@ -67,12 +67,12 @@ fn main() {
 Check out the examples for more. Still a work in progress. Expect bugs & breaking API changes. Check out the examples to get started.
 
 the following types are currently supported:
-* objects (currently limited to non-nested types)
-* arrays (currently limited to non-nested types)
-* strings
-* boolean
 * null
-* number (currently limited to integers)
+* boolean
+* strings
+* numbers
+* objects
+* arrays
 
 TODO:
 - [x] support null type
