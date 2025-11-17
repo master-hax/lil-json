@@ -24,7 +24,7 @@ fn proxy_json_object<Input: Read, Output: Write, Logs: Write>(mut input: Input, 
     loop {
         match input.read(read_buffer.split_at_mut(read_buffer_end).1) {
             Err(e) => {
-                eprintln!("failed to read from input: {:?}", e);
+                log_output.write_fmt(format_args!("failed to read from input: {:?}", e)).unwrap();
                 exit(1);
             },
             Ok(n) => {
