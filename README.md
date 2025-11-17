@@ -83,7 +83,7 @@ TODO:
 - [x] support arrays
 - [ ] support [arbitrary](https://crates.io/crates/arbitrary) crate
 - [ ] support parsing arbitrary types
-- [ ] support hex digit escape sequences
+- [x] support hex digit escape sequences
 - [ ] support buffered serialization
 - [ ] support parsing from stream
 - [ ] support parsing streaming objects/arrays
