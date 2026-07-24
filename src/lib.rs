@@ -1120,7 +1120,7 @@ const fn skip_numeric(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFail
     }
     if *index == data.len() {
         Err(JsonParseFailure::Incomplete)
-    } else if data[*index].is_ascii_whitespace() || data[*index] == b',' || data[*index] == b'}' {
+    } else if data[*index].is_ascii_whitespace() || data[*index] == b',' || data[*index] == b'}' || data[*index] == b']' {
         Ok(())
     } else {
         Err(JsonParseFailure::InvalidNumericField)
@@ -1709,6 +1709,36 @@ mod test_core {
         let bytes_consumed = parser.parse(b"[]", &mut []).unwrap();
         assert_eq!(bytes_consumed, 2);
         assert_eq!(parser.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_array_positive_number_before_closing_bracket() {
+        let data = br#"[1]"#;
+        let mut escape_buffer = [0_u8; 0];
+        let mut buf = [JsonValue::Null; 1];
+        let (bytes_consumed,num_values) = parse_json_array(
+            data,
+            ParseBuffer::Finite(0,&mut buf),
+            &mut StringBuffer::Finite(0, &mut escape_buffer),
+        ).unwrap();
+        assert_eq!(bytes_consumed, data.len());
+        assert_eq!(num_values, 1);
+        assert_eq!(JsonValue::Number(1), buf[0]);
+    }
+
+    #[test]
+    fn test_parse_array_negative_number_before_closing_bracket() {
+        let data = br#"[-1]"#;
+        let mut escape_buffer = [0_u8; 0];
+        let mut buf = [JsonValue::Null; 1];
+        let (bytes_consumed,num_values) = parse_json_array(
+            data,
+            ParseBuffer::Finite(0,&mut buf),
+            &mut StringBuffer::Finite(0, &mut escape_buffer),
+        ).unwrap();
+        assert_eq!(bytes_consumed, data.len());
+        assert_eq!(num_values, 1);
+        assert_eq!(JsonValue::Number(-1), buf[0]);
     }
 
     #[test]
