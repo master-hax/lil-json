@@ -194,7 +194,7 @@ impl <'a> JsonValue<'a> {
                     Err(_parse_int_error) => return Err(JsonParseFailure::NumberParseError),
                 };
                 JsonValue::Number(numeric_value)
-            } else if data[current_data_index] >= b'0' && data[current_data_index] < b'9' {
+            } else if data[current_data_index] >= b'0' && data[current_data_index] <= b'9' {
                 // positive number
                 let numeric_start_index = current_data_index;
                 current_data_index += 1;
@@ -822,7 +822,7 @@ pub fn parse_json_array<'input_data: 'escaped_data,'escaped_data>(
                     Err(_parse_int_error) => return Err(JsonParseFailure::NumberParseError),
                 };
                 field_buffer.write_thing(JsonValue::Number(numeric_value))?;
-            } else if data[current_data_index] >= b'0' && data[current_data_index] < b'9' {
+            } else if data[current_data_index] >= b'0' && data[current_data_index] <= b'9' {
                 // positive number
                 let numeric_start_index = current_data_index;
                 current_data_index += 1;
@@ -912,7 +912,7 @@ pub fn parse_json_object<'input_data: 'escaped_data,'escaped_data>(
                     Err(_parse_int_error) => return Err(JsonParseFailure::NumberParseError),
                 };
                 field_buffer.write_thing(JsonField::new(string_key, JsonValue::Number(numeric_value)))?;
-            } else if data[current_data_index] >= b'0' && data[current_data_index] < b'9' {
+            } else if data[current_data_index] >= b'0' && data[current_data_index] <= b'9' {
                 // positive number
                 let numeric_start_index = current_data_index;
                 current_data_index += 1;
@@ -1623,6 +1623,57 @@ mod test_core {
             },
             other => panic!("{:?}", other),
         }
+    }
+
+    #[test]
+    fn test_parse_value_integer_starting_with_nine() {
+        let data = br#"9 "#;
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Ok((value_end,value)) => {
+                assert_eq!(data.len(),value_end+1); // need non-numeric to recognize end
+                match value {
+                    JsonValue::Number(n) => {
+                        assert_eq!(9, n);
+                    },
+                    other => panic!("{:?}", other),
+                }
+            },
+            other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_array_integer_starting_with_nine() {
+        let data = br#"[9,90,999]"#;
+        let mut escape_buffer = [0_u8; 0];
+        let mut buf = [JsonValue::Null; 3];
+        let (bytes_consumed,num_values) = parse_json_array(
+            data,
+            ParseBuffer::Finite(0,&mut buf),
+            &mut StringBuffer::Finite(0, &mut escape_buffer),
+        ).unwrap();
+        assert_eq!(bytes_consumed, data.len());
+        assert_eq!(num_values, 3);
+        assert_eq!(JsonValue::Number(9), buf[0]);
+        assert_eq!(JsonValue::Number(90), buf[1]);
+        assert_eq!(JsonValue::Number(999), buf[2]);
+    }
+
+    #[test]
+    fn test_parse_object_integer_starting_with_nine() {
+        let data = br#"{"a":9,"b":90,"c":999}"#;
+        let mut escape_buffer = [0_u8; 3];
+        let mut buf = [EMPTY_FIELD; 3];
+        let (bytes_consumed,num_fields) = parse_json_object(
+            data,
+            ParseBuffer::Finite(0,&mut buf),
+            &mut StringBuffer::Finite(0, &mut escape_buffer),
+        ).unwrap();
+        assert_eq!(bytes_consumed, data.len());
+        assert_eq!(num_fields, 3);
+        assert_eq!(JsonField::new("a", JsonValue::Number(9)), buf[0]);
+        assert_eq!(JsonField::new("b", JsonValue::Number(90)), buf[1]);
+        assert_eq!(JsonField::new("c", JsonValue::Number(999)), buf[2]);
     }
 
     #[test]
