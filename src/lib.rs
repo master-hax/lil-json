@@ -451,10 +451,11 @@ impl<'a,const N: usize> ArrayJsonArray<'a,N> {
 
     /// similar to JsonObject::pop but supports const contexts
     pub const fn pop_const(&mut self) -> Option<&JsonValue<'a>> {
-        match self.values_const().split_last() {
-            None => return None,
-            Some((split,_remaining)) => return Some(split),
+        if self.num_values == 0 {
+            return None;
         }
+        self.num_values -= 1;
+        Some(&self.values[self.num_values])
     }
 
     /// same as JsonObject::fields but supports const contexts
@@ -641,10 +642,11 @@ impl<'a,const N: usize> ArrayJsonObject<'a,N> {
 
     /// similar to JsonObject::pop but supports const contexts
     pub const fn pop_const(&mut self) -> Option<&JsonField<'a,'a>> {
-        match self.fields_const().split_last() {
-            None => return None,
-            Some((split,_remaining)) => return Some(split),
+        if self.num_fields == 0 {
+            return None;
         }
+        self.num_fields -= 1;
+        Some(&self.fields[self.num_fields])
     }
 
     /// same as JsonObject::fields but supports const contexts
@@ -2003,6 +2005,32 @@ mod test_core {
         assert_eq!(Some(JsonField::new_number("c", 3)), test_object.pop());
         assert_eq!(2, test_object.len());
         assert_eq!(&[JsonField::new_number("a", 1),JsonField::new_number("b", 2)], test_object.fields());
+    }
+
+    #[test]
+    fn test_pop_const_array() {
+        let mut test_array = ArrayJsonArray::<3>::new();
+        test_array.push_const(JsonValue::Number(1)).unwrap();
+        test_array.push_const(JsonValue::Number(2)).unwrap();
+        test_array.push_const(JsonValue::Number(3)).unwrap();
+        assert_eq!(Some(&JsonValue::Number(3)), test_array.pop_const());
+        assert_eq!(2, test_array.len());
+        assert_eq!(Some(&JsonValue::Number(2)), test_array.pop_const());
+        assert_eq!(1, test_array.len());
+        assert_eq!(&[JsonValue::Number(1)], test_array.values_const());
+    }
+
+    #[test]
+    fn test_pop_const_object() {
+        let mut test_object = ArrayJsonObject::<3>::new();
+        test_object.push_const("a", JsonValue::Number(1)).unwrap();
+        test_object.push_const("b", JsonValue::Number(2)).unwrap();
+        test_object.push_const("c", JsonValue::Number(3)).unwrap();
+        assert_eq!(Some(&JsonField::new_number("c", 3)), test_object.pop_const());
+        assert_eq!(2, test_object.len());
+        assert_eq!(Some(&JsonField::new_number("b", 2)), test_object.pop_const());
+        assert_eq!(1, test_object.len());
+        assert_eq!(&[JsonField::new_number("a", 1)], test_object.fields_const());
     }
 
     #[test]
