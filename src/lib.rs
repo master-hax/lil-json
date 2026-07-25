@@ -1116,13 +1116,17 @@ fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped:
     Err(JsonParseFailure::Incomplete)
 }
 
+const fn is_json_whitespace(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\n' | b'\r')
+}
+
 const fn skip_numeric(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure> {
     while *index < data.len() && data[*index] <= b'9' && data[*index] >= b'0' {
         *index += 1;
     }
     if *index == data.len() {
         Err(JsonParseFailure::Incomplete)
-    } else if data[*index].is_ascii_whitespace() || data[*index] == b',' || data[*index] == b'}' || data[*index] == b']' {
+    } else if is_json_whitespace(data[*index]) || data[*index] == b',' || data[*index] == b'}' || data[*index] == b']' {
         Ok(())
     } else {
         Err(JsonParseFailure::InvalidNumericField)
@@ -1144,7 +1148,7 @@ fn skip_literal(index: &mut usize, data: &[u8], target: &str, field_error_type: 
 }
 
 fn skip_whitespace(index: &mut usize, data: &[u8]) -> Result<(),JsonParseFailure> {
-    while *index < data.len() && data[*index].is_ascii_whitespace() {
+    while *index < data.len() && is_json_whitespace(data[*index]) {
         *index += 1;
     }
     if *index == data.len() {
@@ -1647,6 +1651,24 @@ mod test_core {
     }
 
     #[test]
+    fn test_parse_value_failure_form_feed_is_not_whitespace() {
+        let data = "\x0Ctrue";
+        match JsonValue::parse(data.as_bytes(), &mut []) {
+            Err(JsonParseFailure::InvalidStructure) => {},
+            other => panic!("{:?}", other)
+        }
+    }
+
+    #[test]
+    fn test_parse_value_failure_form_feed_after_number_is_not_whitespace() {
+        let data = "1\x0C";
+        match JsonValue::parse(data.as_bytes(), &mut []) {
+            Err(JsonParseFailure::InvalidNumericField) => {},
+            other => panic!("{:?}", other)
+        }
+    }
+
+    #[test]
     fn test_parse_value_integer() {
         let data = br#"12345 "#;
         match JsonValue::parse(data, &mut [0_u8; 16]) {
@@ -1780,6 +1802,27 @@ mod test_core {
     }
 
     #[test]
+    fn test_parse_array_failure_form_feed_is_not_whitespace() {
+        let data = "[\x0C]";
+        let mut escape_buffer = [0_u8; 0];
+        match parse_json_array(data.as_bytes(), ParseBuffer::Finite(0,&mut []), &mut StringBuffer::Finite(0, &mut escape_buffer)) {
+            Err(JsonParseFailure::InvalidStructure) => {},
+            other => panic!("{:?}", other)
+        }
+    }
+
+    #[test]
+    fn test_parse_array_failure_form_feed_after_number_is_not_whitespace() {
+        let data = "[1\x0C]";
+        let mut escape_buffer = [0_u8; 0];
+        let mut buf = [JsonValue::Null; 1];
+        match parse_json_array(data.as_bytes(), ParseBuffer::Finite(0,&mut buf), &mut StringBuffer::Finite(0, &mut escape_buffer)) {
+            Err(JsonParseFailure::InvalidNumericField) => {},
+            other => panic!("{:?}", other)
+        }
+    }
+
+    #[test]
     fn test_parse_object_empty_core() {
         let mut escape_buffer = [0_u8; 0];
         let (bytes_consumed,num_fields) = parse_json_object(
@@ -1903,6 +1946,25 @@ mod test_core {
     #[test]
     fn test_parse_object_failure_invalid_number_minus() {
         match ArrayJsonObject::<1>::new_parsed(br#"{"": -}"#, &mut []) {
+            Err(JsonParseFailure::InvalidNumericField) => {},
+            other => panic!("{:?}", other)
+        }
+    }
+
+    #[test]
+    fn test_parse_object_failure_form_feed_is_not_whitespace() {
+        let data = "{\x0C}";
+        match ArrayJsonObject::<0>::new_parsed(data.as_bytes(), &mut []) {
+            Err(JsonParseFailure::InvalidStringField) => {},
+            other => panic!("{:?}", other)
+        }
+    }
+
+    #[test]
+    fn test_parse_object_failure_form_feed_after_number_is_not_whitespace() {
+        let data = "{\"a\":1\x0C}";
+        let mut escape_buffer = [0_u8; 1];
+        match ArrayJsonObject::<1>::new_parsed(data.as_bytes(), &mut escape_buffer) {
             Err(JsonParseFailure::InvalidNumericField) => {},
             other => panic!("{:?}", other)
         }
@@ -2127,3 +2189,4 @@ mod test_core {
     }
 
 }
+
