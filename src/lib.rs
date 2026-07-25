@@ -392,7 +392,7 @@ impl <'a,T: ValueBufferMut<'a>> JsonArray<T> {
             return None;
         }
         self.num_values -= 1;
-        Some(core::mem::take(&mut self.values.as_mut()[self.num_values+1]))
+        Some(core::mem::take(&mut self.values.as_mut()[self.num_values]))
     }
 
     /// attempt to parse a JSON object from the provided data slice and write its fields into this JsonObject - returns a tuple of (num bytes consumed, num fields parsed) on success
@@ -573,7 +573,7 @@ impl <'a,T: FieldBufferMut<'a>> JsonObject<T> {
             return None;
         }
         self.num_fields -= 1;
-        Some(core::mem::take(&mut self.fields.as_mut()[self.num_fields+1]))
+        Some(core::mem::take(&mut self.fields.as_mut()[self.num_fields]))
     }
 
     /// convenience helper to create and push a new field
@@ -1960,7 +1960,51 @@ mod test_core {
         let n = test_map.serialize(buffer.as_mut_slice()).unwrap();
         assert_eq!(br#"["hello world",1516239022,false,null]"#, buffer.split_at(n).0)
     }
-    
+
+    #[test]
+    fn test_pop_full_array() {
+        let mut test_array = ArrayJsonArray::<3>::new();
+        test_array.push(JsonValue::Number(1)).unwrap();
+        test_array.push(JsonValue::Number(2)).unwrap();
+        test_array.push(JsonValue::Number(3)).unwrap();
+        assert_eq!(Some(JsonValue::Number(3)), test_array.pop());
+        assert_eq!(2, test_array.len());
+        assert_eq!(&[JsonValue::Number(1),JsonValue::Number(2)], test_array.values());
+    }
+
+    #[test]
+    fn test_pop_partial_array() {
+        let mut test_array = ArrayJsonArray::<5>::new();
+        test_array.push(JsonValue::Number(1)).unwrap();
+        test_array.push(JsonValue::Number(2)).unwrap();
+        test_array.push(JsonValue::Number(3)).unwrap();
+        assert_eq!(Some(JsonValue::Number(3)), test_array.pop());
+        assert_eq!(2, test_array.len());
+        assert_eq!(&[JsonValue::Number(1),JsonValue::Number(2)], test_array.values());
+    }
+
+    #[test]
+    fn test_pop_full_object() {
+        let mut test_object = ArrayJsonObject::<3>::new();
+        test_object.push_field("a", JsonValue::Number(1)).unwrap();
+        test_object.push_field("b", JsonValue::Number(2)).unwrap();
+        test_object.push_field("c", JsonValue::Number(3)).unwrap();
+        assert_eq!(Some(JsonField::new_number("c", 3)), test_object.pop());
+        assert_eq!(2, test_object.len());
+        assert_eq!(&[JsonField::new_number("a", 1),JsonField::new_number("b", 2)], test_object.fields());
+    }
+
+    #[test]
+    fn test_pop_partial_object() {
+        let mut test_object = ArrayJsonObject::<5>::new();
+        test_object.push_field("a", JsonValue::Number(1)).unwrap();
+        test_object.push_field("b", JsonValue::Number(2)).unwrap();
+        test_object.push_field("c", JsonValue::Number(3)).unwrap();
+        assert_eq!(Some(JsonField::new_number("c", 3)), test_object.pop());
+        assert_eq!(2, test_object.len());
+        assert_eq!(&[JsonField::new_number("a", 1),JsonField::new_number("b", 2)], test_object.fields());
+    }
+
     #[test]
     fn test_serialize_object_empty() {
         let mut buffer = [0_u8; 2];
