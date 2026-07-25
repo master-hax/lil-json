@@ -9,8 +9,8 @@ extern crate elsa;
 #[cfg(feature = "alloc")]
 use elsa::FrozenVec;
 
-const UNICODE_HIGH_SURROGATE_RANGE: core::ops::Range<u16> = 0xD800..0xDBFF;
-const UNICODE_LOW_SURROGATE_RANGE: core::ops::Range<u16> = 0xDC00..0xDFFF;
+const UNICODE_HIGH_SURROGATE_RANGE: core::ops::Range<u16> = 0xD800..0xDC00;
+const UNICODE_LOW_SURROGATE_RANGE: core::ops::Range<u16> = 0xDC00..0xE000;
 
 /// a buffer for an growable string escape buffer. enabled with `alloc` feature.
 #[cfg(feature = "alloc")]
@@ -1552,6 +1552,42 @@ mod test_core {
                 match value {
                     JsonValue::String(s) => {
                         assert_eq!("𝄞😅💀", s);
+                    },
+                    other => panic!("{:?}", other),
+                }
+            },
+            other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_unicode_escaped_hex_digits_surrogate_pair_max_high_surrogate() {
+        // 0xDBFF is the highest valid high surrogate
+        let data = br#""\uDBFF\uDC00""#;
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Ok((value_end,value)) => {
+                assert_eq!(data.len(),value_end);
+                match value {
+                    JsonValue::String(s) => {
+                        assert_eq!("􏰀", s);
+                    },
+                    other => panic!("{:?}", other),
+                }
+            },
+            other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_unicode_escaped_hex_digits_surrogate_pair_max_low_surrogate() {
+        // 0xDFFF is the highest valid low surrogate
+        let data = br#""\uD800\uDFFF""#;
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Ok((value_end,value)) => {
+                assert_eq!(data.len(),value_end);
+                match value {
+                    JsonValue::String(s) => {
+                        assert_eq!("𐏿", s);
                     },
                     other => panic!("{:?}", other),
                 }
