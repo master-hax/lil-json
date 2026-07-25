@@ -1036,7 +1036,7 @@ fn require_character<const EXPECTED_CHAR: char>(
 
 fn unescape_json_string<'data,'escaped>(index: &mut usize, data: &[u8], escaped: &mut StringBuffer<'escaped>) -> Result<&'escaped str,JsonParseFailure> {
     if data[*index] != b'\"' {
-        return Err(JsonParseFailure::InvalidStringField);
+        return Err(JsonParseFailure::InvalidStructure);
     }
     let remaining_data = data.split_at(*index+1).1;
     let chunk_iterator = remaining_data.utf8_chunks();
@@ -1651,6 +1651,76 @@ mod test_core {
     }
 
     #[test]
+    fn test_parse_value_string_failure_invalid_hex_digit() {
+        let data = br#""\uGGGG""#;
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Err(JsonParseFailure::InvalidStringField) => {},
+            Err(other) => {
+                panic!("unexpected error: {:?}", other);
+            },
+            Ok((value_end,value)) => {
+                panic!("unexpected success: {} {:?}", value_end, value);
+            },
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_failure_high_surrogate_not_followed_by_backslash_u() {
+        let data = br#""\uD800X""#;
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Err(JsonParseFailure::InvalidStringField) => {},
+            Err(other) => {
+                panic!("unexpected error: {:?}", other);
+            },
+            Ok((value_end,value)) => {
+                panic!("unexpected success: {} {:?}", value_end, value);
+            },
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_failure_unrecognized_escape_character() {
+        let data = br#""\q""#;
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Err(JsonParseFailure::InvalidStringField) => {},
+            Err(other) => {
+                panic!("unexpected error: {:?}", other);
+            },
+            Ok((value_end,value)) => {
+                panic!("unexpected success: {} {:?}", value_end, value);
+            },
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_failure_high_surrogate_not_followed_by_low_surrogate() {
+        let data = br#""\uD800\u0041""#;
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Err(JsonParseFailure::InvalidStringField) => {},
+            Err(other) => {
+                panic!("unexpected error: {:?}", other);
+            },
+            Ok((value_end,value)) => {
+                panic!("unexpected success: {} {:?}", value_end, value);
+            },
+        }
+    }
+
+    #[test]
+    fn test_parse_value_string_failure_invalid_utf8() {
+        let data = b"\"\xFF\"";
+        match JsonValue::parse(data, &mut [0_u8; 16]) {
+            Err(JsonParseFailure::InvalidStringField) => {},
+            Err(other) => {
+                panic!("unexpected error: {:?}", other);
+            },
+            Ok((value_end,value)) => {
+                panic!("unexpected success: {} {:?}", value_end, value);
+            },
+        }
+    }
+
+    #[test]
     fn test_parse_value_failure_form_feed_is_not_whitespace() {
         let data = "\x0Ctrue";
         match JsonValue::parse(data.as_bytes(), &mut []) {
@@ -1955,7 +2025,7 @@ mod test_core {
     fn test_parse_object_failure_form_feed_is_not_whitespace() {
         let data = "{\x0C}";
         match ArrayJsonObject::<0>::new_parsed(data.as_bytes(), &mut []) {
-            Err(JsonParseFailure::InvalidStringField) => {},
+            Err(JsonParseFailure::InvalidStructure) => {},
             other => panic!("{:?}", other)
         }
     }
