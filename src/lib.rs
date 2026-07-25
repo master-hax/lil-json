@@ -320,7 +320,7 @@ impl<T> JsonArray<T> {
     }
 }
 
-impl<'a,T: FieldBuffer<'a> + Default + ?Sized> Default for JsonArray<T> {
+impl<'a,T: ValueBuffer<'a> + Default + ?Sized> Default for JsonArray<T> {
     fn default() -> Self {
         JsonArray { values: T::default(), num_values: 0 }
     }
